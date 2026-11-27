@@ -73,6 +73,27 @@ public final class ServerNetworking {
             case "scene_delete" -> service.deleteScene(a.arg(0));
             case "scene_add" -> service.addToScene(a.arg(0), a.arg(1), (int) Math.round(parse(a.arg(2), 0) * 1000));
             case "scene_remove" -> service.removeFromScene(a.arg(0), a.arg(1));
+            case "scene_clear" -> service.clearScene(a.arg(0));
+            case "scene_delay" -> service.setSceneDelay(a.arg(0), a.arg(1), (int) Math.round(parse(a.arg(2), 0) * 1000));
+            case "crowd_add" -> {
+                com.playerplayback.scene.Formation f;
+                try {
+                    f = com.playerplayback.scene.Formation.valueOf(a.arg(3).toUpperCase(java.util.Locale.ROOT));
+                } catch (IllegalArgumentException e) {
+                    f = com.playerplayback.scene.Formation.GRID;
+                }
+                yield service.addCrowd(a.arg(0), a.arg(1), (int) parse(a.arg(2), 10), f,
+                        Math.max(0.3, parse(a.arg(4), 1.5)), Math.max(0, parse(a.arg(5), 0.6)));
+            }
+            case "crowd_skins" -> {
+                List<String> users = Arrays.stream(a.arg(1).split("[\\s,]+")).filter(u -> !u.isBlank()).toList();
+                player.sendSystemMessage(Component.literal("[Playback] Fetching " + users.size() + " skins...").withStyle(ChatFormatting.GRAY));
+                service.crowdSkins(a.arg(0), users, res -> reply(player, res));
+                yield null;
+            }
+            case "crowd_names" -> service.crowdNames(a.arg(0), a.arg(1));
+            case "crowd_nametags" -> service.crowdNametags(a.arg(0),
+                    switch (a.arg(1)) { case "hide" -> Boolean.TRUE; case "show" -> Boolean.FALSE; default -> null; });
             default -> Result.fail("Unknown action " + a.action());
         };
         if (r != null) reply(player, r);
@@ -130,7 +151,9 @@ public final class ServerNetworking {
             info.name = sc.name;
             for (Scene.Entry e : sc.entries) {
                 GuiState.Entry ge = new GuiState.Entry();
+                ge.id = e.id;
                 ge.recording = e.recording;
+                ge.speed = e.speed;
                 ge.delaySeconds = e.delayMs / 1000.0;
                 ge.actorName = e.appearance.name;
                 ge.skin = e.appearance.skinSource;

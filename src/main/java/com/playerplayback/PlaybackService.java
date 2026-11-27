@@ -10,6 +10,7 @@ import com.playerplayback.recording.Recorder;
 import com.playerplayback.recording.Recording;
 import com.playerplayback.scene.Scene;
 import com.playerplayback.scene.SceneStore;
+import com.playerplayback.scene.Formation;
 import com.playerplayback.util.Compat;
 import com.playerplayback.util.Names;
 import com.mojang.authlib.properties.Property;
@@ -163,6 +164,23 @@ public final class PlaybackService {
         }
     }
 
+    /** Called for every sound the server plays; keeps the ones made by recorded players. */
+    public void soundPlayed(net.minecraft.server.level.ServerLevel level, net.minecraft.world.entity.Entity except,
+                            net.minecraft.world.entity.Entity sourceEntity, double x, double y, double z,
+                            net.minecraft.core.Holder<net.minecraft.sounds.SoundEvent> sound, net.minecraft.sounds.SoundSource source,
+                            float volume, float pitch, long seed) {
+        if (recorders.isEmpty()) return;
+        for (Recorder r : recorders.values()) {
+            ServerPlayer p = server.getPlayerList().getPlayer(r.playerId);
+            if (p == null || p.level() != level) continue;
+            boolean mine = except == p || sourceEntity == p || (sourceEntity == null && p.distanceToSqr(x, y, z) < 1.0);
+            if (mine) {
+                r.sound(sound.value().location().toString(), source.getName(), x, y, z, volume, pitch, seed);
+                return;
+            }
+        }
+    }
+
     public Result stopRecording(UUID playerId, ServerPlayer player) {
         Recorder r = recorders.remove(playerId);
         if (r == null) return Result.fail("That player is not being recorded");
@@ -183,7 +201,7 @@ public final class PlaybackService {
         if (r.scene != null) {
             Scene sc = scenes.get(r.scene);
             if (sc != null) {
-                if (sc.find(name) == null) sc.entries.add(new Scene.Entry(name, 0));
+                if (sc.entries.stream().noneMatch(e -> e.recording.equals(name))) sc.entries.add(new Scene.Entry(sc.newId(name), name, 0));
                 scenes.save(sc);
                 extra = " and added to scene '" + r.scene + "'";
             }
@@ -248,7 +266,7 @@ public final class PlaybackService {
         }
         boolean blocks = rec.events.stream().anyMatch(e -> e instanceof com.playerplayback.recording.ActorEvent.Block);
         Playback p = playback.create(name, null, loop, clampSpeed(speed), gameClock, blocks);
-        p.actors.add(new Actor(name, rec, recordingAppearance(name), 0, offset == null ? Vec3.ZERO : offset, server.registryAccess()));
+        p.actors.add(new Actor(name, null, rec, recordingAppearance(name), 0, 1.0, offset == null ? Vec3.ZERO : offset, server.registryAccess()));
         playback.start(p);
         return Result.ok("Playing '" + name + "' (#" + p.id + ")");
     }
@@ -273,7 +291,7 @@ public final class PlaybackService {
             try {
                 Recording rec = load(e.recording);
                 Appearance app = e.appearance.over(recordingAppearance(e.recording));
-                p.actors.add(new Actor(e.recording, rec, app, e.delayMs, new Vec3(e.offsetX, e.offsetY, e.offsetZ), server.registryAccess()));
+                p.actors.add(new Actor(e.recording, e.id, rec, app, e.delayMs, e.speed, new Vec3(e.offsetX, e.offsetY, e.offsetZ), server.registryAccess()));
             } catch (IOException ex) {
                 missing.add(e.recording);
             }
@@ -293,16 +311,28 @@ public final class PlaybackService {
     // ------------------------------------------------------------------ appearance
 
     /** Applies {@code edit} to the recording-level (scene == null) or scene-entry appearance. */
+    /**
+     * Applies {@code edit} to a recording's default appearance (scene == null), or to one scene
+     * entry ({@code recording} is then the entry id, e.g. "take1+3"; use "*" for every entry).
+     */
     private Result editAppearance(String recording, String scene, Consumer<Appearance> edit, String message) {
-        if (!recordingNames.contains(recording)) return Result.fail("Unknown recording '" + recording + "'");
         if (scene != null) {
             Scene sc = scenes.get(scene);
             if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+            if (recording.equals("*")) {
+                for (Scene.Entry e : sc.entries) edit.accept(e.appearance);
+                scenes.save(sc);
+                for (String r : new HashSet<>(sc.entries.stream().map(e -> e.recording).toList())) refreshRunning(r);
+                changed();
+                return Result.ok(message + " (" + sc.entries.size() + " actors)");
+            }
             Scene.Entry entry = sc.find(recording);
             if (entry == null) return Result.fail("'" + recording + "' is not in scene '" + scene + "'");
             edit.accept(entry.appearance);
             scenes.save(sc);
+            recording = entry.recording;
         } else {
+            if (!recordingNames.contains(recording)) return Result.fail("Unknown recording '" + recording + "'");
             edit.accept(appearances.getOrCreate(recording));
             appearances.save();
         }
@@ -314,11 +344,13 @@ public final class PlaybackService {
     private void refreshRunning(String recording) {
         playback.refreshActors(recording, actor -> {
             Appearance base = recordingAppearance(recording);
-            for (Playback p : playback.list()) {
-                if (p.sceneName != null && p.actors.contains(actor)) {
-                    Scene sc = scenes.get(p.sceneName);
-                    Scene.Entry e = sc == null ? null : sc.find(recording);
-                    if (e != null) return e.appearance.over(base);
+            if (actor.entryId != null) {
+                for (Playback p : playback.list()) {
+                    if (p.sceneName != null && p.actors.contains(actor)) {
+                        Scene sc = scenes.get(p.sceneName);
+                        Scene.Entry e = sc == null ? null : sc.find(actor.entryId);
+                        if (e != null) return e.appearance.over(base);
+                    }
                 }
             }
             return base;
@@ -349,7 +381,7 @@ public final class PlaybackService {
 
     /** Fetches a skin from Mojang, then reports back through {@code callback} on the server thread. */
     public void fetchSkin(String recording, String scene, String username, Consumer<Result> callback) {
-        if (!recordingNames.contains(recording)) {
+        if (scene == null && !recordingNames.contains(recording)) {
             callback.accept(Result.fail("Unknown recording '" + recording + "'"));
             return;
         }
@@ -386,22 +418,21 @@ public final class PlaybackService {
         Scene sc = scenes.get(scene);
         if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
         if (!recordingNames.contains(recording)) return Result.fail("Unknown recording '" + recording + "'");
-        Scene.Entry e = sc.find(recording);
-        if (e == null) {
-            e = new Scene.Entry(recording, delayMs);
-            sc.entries.add(e);
-        } else {
-            e.delayMs = delayMs;
-        }
+        Scene.Entry e = new Scene.Entry(sc.newId(recording), recording, delayMs);
+        sc.entries.add(e);
         scenes.save(sc);
         changed();
-        return Result.ok("Scene '" + scene + "': " + recording + " starts at " + delayMs / 1000.0 + "s");
+        return Result.ok("Added " + e.id + " to '" + scene + "', starting at " + delayMs / 1000.0 + "s");
     }
 
+    /** Removes one entry by id, or every copy of a recording when given the bare recording name with "all". */
     public Result removeFromScene(String scene, String recording) {
         Scene sc = scenes.get(scene);
         if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
-        if (!sc.entries.removeIf(e -> e.recording.equals(recording))) return Result.fail("'" + recording + "' is not in that scene");
+        boolean removed = recording.endsWith("*")
+                ? sc.entries.removeIf(e -> e.recording.equals(recording.substring(0, recording.length() - 1)))
+                : sc.entries.removeIf(e -> e.id.equals(recording));
+        if (!removed) return Result.fail("'" + recording + "' is not in that scene");
         scenes.save(sc);
         changed();
         return Result.ok("Removed " + recording + " from '" + scene + "'");
@@ -418,6 +449,122 @@ public final class PlaybackService {
         scenes.save(sc);
         changed();
         return Result.ok(String.format(Locale.ROOT, "%s is now offset by %.1f %.1f %.1f in '%s'", recording, offset.x, offset.y, offset.z, scene));
+    }
+
+    public Result setSceneDelay(String scene, String entryId, int delayMs) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        Scene.Entry e = sc.find(entryId);
+        if (e == null) return Result.fail("'" + entryId + "' is not in that scene");
+        e.delayMs = delayMs;
+        scenes.save(sc);
+        changed();
+        return Result.ok(entryId + " now starts at " + delayMs / 1000.0 + "s");
+    }
+
+    public Result clearScene(String scene) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        int n = sc.entries.size();
+        sc.entries.clear();
+        scenes.save(sc);
+        changed();
+        return Result.ok("Removed " + n + " actors from '" + scene + "'");
+    }
+
+    // ------------------------------------------------------------------ crowds
+
+    /**
+     * Adds {@code count} copies of a recording to a scene, laid out in a formation around the
+     * original path, each with slight timing/speed/position variation so the crowd looks natural.
+     */
+    public Result addCrowd(String scene, String recording, int count, Formation formation, double spacing, double jitterSeconds) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        if (!recordingNames.contains(recording)) return Result.fail("Unknown recording '" + recording + "'");
+        if (count < 1 || count > 1000) return Result.fail("Count must be 1-1000");
+        float yaw = 0;
+        try {
+            var first = load(recording).firstFrame();
+            if (first != null) yaw = first.yaw();
+        } catch (IOException e) {
+            return Result.fail("Could not read '" + recording + "': " + e.getMessage());
+        }
+        Random random = new Random();
+        // If the take is already in the scene at its original spot, don't stack a copy on top of it.
+        boolean originalTaken = sc.entries.stream().anyMatch(e -> e.recording.equals(recording)
+                && e.offsetX == 0 && e.offsetY == 0 && e.offsetZ == 0);
+        List<Vec3> offsets = new ArrayList<>(formation.layout(originalTaken ? count + 1 : count, spacing, yaw, random));
+        if (originalTaken) offsets.remove(0);
+        for (Vec3 off : offsets) {
+            Scene.Entry e = new Scene.Entry(sc.newId(recording), recording, (int) Math.round(random.nextDouble() * jitterSeconds * 1000));
+            double noise = formation == Formation.RANDOM ? 0 : spacing * 0.15;
+            e.offsetX = off.x + (random.nextDouble() * 2 - 1) * noise;
+            e.offsetY = off.y;
+            e.offsetZ = off.z + (random.nextDouble() * 2 - 1) * noise;
+            e.speed = jitterSeconds > 0 ? 0.95 + random.nextDouble() * 0.1 : 1.0;
+            sc.entries.add(e);
+        }
+        scenes.save(sc);
+        changed();
+        return Result.ok("Added a " + formation.name().toLowerCase(Locale.ROOT) + " crowd of " + count + " x " + recording
+                + " to '" + scene + "' (" + sc.entries.size() + " actors total)");
+    }
+
+    /** Gives every actor in a scene a skin from the list (round-robin, fetched from Mojang). */
+    public void crowdSkins(String scene, List<String> usernames, Consumer<Result> callback) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) {
+            callback.accept(Result.fail("Unknown scene '" + scene + "'"));
+            return;
+        }
+        if (usernames.isEmpty()) {
+            callback.accept(Result.fail("Give at least one username"));
+            return;
+        }
+        List<CompletableFuture<SkinFetcher.Skin>> futures = usernames.stream().map(SkinFetcher::fetch).toList();
+        CompletableFuture.allOf(futures.stream().map(f -> f.exceptionally(t -> null)).toArray(CompletableFuture[]::new))
+                .whenComplete((v, err) -> server.execute(() -> {
+                    List<SkinFetcher.Skin> skins = new ArrayList<>();
+                    List<String> failed = new ArrayList<>();
+                    for (int i = 0; i < futures.size(); i++) {
+                        SkinFetcher.Skin skin = futures.get(i).getNow(null);
+                        if (skin == null) failed.add(usernames.get(i));
+                        else skins.add(skin);
+                    }
+                    if (skins.isEmpty()) {
+                        callback.accept(Result.fail("Couldn't fetch any of those skins"));
+                        return;
+                    }
+                    Scene current = scenes.get(scene);
+                    if (current == null) return;
+                    int i = 0;
+                    for (Scene.Entry e : current.entries) e.appearance.setSkin(skins.get(i++ % skins.size()));
+                    scenes.save(current);
+                    for (String r : new HashSet<>(current.entries.stream().map(e -> e.recording).toList())) refreshRunning(r);
+                    changed();
+                    String msg = "Gave " + current.entries.size() + " actors " + skins.size() + " different skins";
+                    if (!failed.isEmpty()) msg += " (not found: " + String.join(", ", failed) + ")";
+                    callback.accept(Result.ok(msg));
+                }));
+    }
+
+    /** Names every actor in a scene prefix1, prefix2, ... ("" resets names). */
+    public Result crowdNames(String scene, String prefix) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        String p = prefix == null ? "" : prefix;
+        if (p.length() > 13) return Result.fail("Prefix can be at most 13 characters");
+        int i = 1;
+        for (Scene.Entry e : sc.entries) e.appearance.name = p.isEmpty() ? null : p + (i++);
+        scenes.save(sc);
+        for (String r : new HashSet<>(sc.entries.stream().map(e -> e.recording).toList())) refreshRunning(r);
+        changed();
+        return Result.ok(p.isEmpty() ? "Reset all names" : "Named " + sc.entries.size() + " actors " + p + "1.." + p + sc.entries.size());
+    }
+
+    public Result crowdNametags(String scene, Boolean hidden) {
+        return editAppearance("*", scene, a -> a.hideNametag = hidden, hidden == null ? "Nametags reset" : hidden ? "Nametags hidden" : "Nametags shown");
     }
 
     // ------------------------------------------------------------------ playback control

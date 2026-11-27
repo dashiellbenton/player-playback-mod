@@ -43,7 +43,7 @@ public final class Playback {
 
     public int lengthMs() {
         int len = 0;
-        for (Actor a : actors) len = Math.max(len, a.delayMs + a.recording.durationMs);
+        for (Actor a : actors) len = Math.max(len, a.endMs());
         return len;
     }
 

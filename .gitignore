@@ -38,3 +38,8 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# built jars handed out locally
+dist/
+versions/*/logs/
+logs/

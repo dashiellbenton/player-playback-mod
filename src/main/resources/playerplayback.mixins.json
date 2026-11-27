@@ -9,6 +9,8 @@
     "LivingEntityAccessor",
     "PlayerInfoUpdatePacketAccessor",
     "ServerGamePacketListenerMixin",
+    "ServerLevelSoundMixin",
+    "ThrowableItemProjectileAccessor",
     "TrackedEntityMixin"
   ],
   "injectors": {

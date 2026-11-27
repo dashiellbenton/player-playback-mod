@@ -23,7 +23,9 @@ public final class GuiState {
     }
 
     public static final class Entry {
+        public String id;
         public String recording;
+        public double speed;
         public double delaySeconds;
         public String actorName;
         public String skin;

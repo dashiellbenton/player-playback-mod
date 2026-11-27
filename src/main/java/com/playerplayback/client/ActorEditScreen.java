@@ -43,7 +43,7 @@ public class ActorEditScreen extends Screen {
                 hidden = r.hideNametag;
             }
         } else {
-            for (GuiState.SceneInfo sc : s.scenes) if (sc.name.equals(scene)) for (GuiState.Entry e : sc.entries) if (e.recording.equals(recording)) {
+            for (GuiState.SceneInfo sc : s.scenes) if (sc.name.equals(scene)) for (GuiState.Entry e : sc.entries) if (e.id.equals(recording)) {
                 actorName = e.actorName;
                 skin = e.skin;
                 hidden = e.hideNametag;

@@ -33,6 +33,12 @@ public class PlaybackScreen extends Screen {
     private static int addRecIndex;
     private static String addDelay = "0";
     private static String pendingDelete;
+    private static String crowdCount = "20";
+    private static String crowdSpacing = "1.5";
+    private static int crowdFormation;
+    private static String crowdSkins = "";
+    private static String crowdPrefix = "";
+    private static final String[] FORMATIONS = {"grid", "line", "column", "wedge", "circle", "random"};
 
     private int left, contentWidth;
 
@@ -271,7 +277,63 @@ public class PlaybackScreen extends Screen {
             addRenderableWidget(delay);
             addRenderableWidget(Button.builder(Component.literal("+ Add"), b -> ClientState.send("scene_add", scene.name, recToAdd, addDelay))
                     .bounds(x + w - 62, y, 62, 20).build());
+            y += ROW;
+
+            // Crowd row: clone the selected recording many times in a formation.
+            label(x, y, 40, Component.literal("Crowd"));
+            EditBox count = new EditBox(font, x + 40, y, 34, 20, Component.literal("Count"));
+            count.setValue(crowdCount);
+            count.setResponder(v -> crowdCount = v);
+            addRenderableWidget(count);
+            addRenderableWidget(Button.builder(Component.literal(FORMATIONS[crowdFormation]), b -> {
+                crowdFormation = (crowdFormation + 1) % FORMATIONS.length;
+                rebuildWidgets();
+            }).bounds(x + 78, y, 56, 20).build());
+            EditBox spacing = new EditBox(font, x + 138, y, 34, 20, Component.literal("Spacing"));
+            spacing.setValue(crowdSpacing);
+            spacing.setResponder(v -> crowdSpacing = v);
+            addRenderableWidget(spacing);
+            addRenderableWidget(Button.builder(Component.literal("+ Crowd"), b -> ClientState.send("crowd_add", scene.name, recToAdd,
+                    crowdCount, FORMATIONS[crowdFormation], crowdSpacing, "0.6")).bounds(x + w - 62, y, 62, 20).build());
             y += ROW + 2;
+        }
+
+        // Bulk appearance for the whole scene.
+        if (!scene.entries.isEmpty()) {
+            EditBox skins = new EditBox(font, x, y, w - 66, 20, Component.literal("Skins"));
+            skins.setMaxLength(240);
+            skins.setValue(crowdSkins);
+            skins.setHint(Component.literal("usernames for skins, e.g. Notch jeb_ Dinnerbone").withStyle(ChatFormatting.DARK_GRAY));
+            skins.setResponder(v -> crowdSkins = v);
+            addRenderableWidget(skins);
+            addRenderableWidget(Button.builder(Component.literal("Skins all"), b -> {
+                if (!crowdSkins.isBlank()) ClientState.send("crowd_skins", scene.name, crowdSkins);
+            }).bounds(x + w - 62, y, 62, 20).build());
+            y += ROW;
+            EditBox prefix = new EditBox(font, x, y, 80, 20, Component.literal("Name prefix"));
+            prefix.setMaxLength(13);
+            prefix.setValue(crowdPrefix);
+            prefix.setHint(Component.literal("name prefix").withStyle(ChatFormatting.DARK_GRAY));
+            prefix.setResponder(v -> crowdPrefix = v);
+            addRenderableWidget(prefix);
+            addRenderableWidget(Button.builder(Component.literal("Name all"), b -> ClientState.send("crowd_names", scene.name, crowdPrefix.trim()))
+                    .bounds(x + 84, y, 60, 20).build());
+            boolean anyShown = scene.entries.stream().anyMatch(e -> !Boolean.TRUE.equals(e.hideNametag));
+            addRenderableWidget(Button.builder(Component.literal(anyShown ? "Hide tags" : "Show tags"),
+                    b -> ClientState.send("crowd_nametags", scene.name, anyShown ? "hide" : "show")).bounds(x + 148, y, 66, 20).build());
+            boolean confirmClear = ("clear:" + scene.name).equals(pendingDelete);
+            addRenderableWidget(Button.builder(Component.literal(confirmClear ? "Sure?" : "Clear").withStyle(ChatFormatting.RED), b -> {
+                if (confirmClear) {
+                    ClientState.send("scene_clear", scene.name);
+                    pendingDelete = null;
+                } else {
+                    pendingDelete = "clear:" + scene.name;
+                }
+                rebuildWidgets();
+            }).bounds(x + w - 62, y, 62, 20).build());
+            y += ROW + 2;
+            label(x, y - 2, w, Component.literal(scene.entries.size() + " actors").withStyle(ChatFormatting.GRAY));
+            y += 14;
         }
 
         if (scene.entries.isEmpty()) {
@@ -283,13 +345,13 @@ public class PlaybackScreen extends Screen {
         page = Math.min(page, pages - 1);
         for (int i = page * rows; i < Math.min(scene.entries.size(), (page + 1) * rows); i++) {
             GuiState.Entry e = scene.entries.get(i);
-            StringBuilder text = new StringBuilder(e.recording).append(String.format(Locale.ROOT, " @%.1fs", e.delaySeconds));
+            StringBuilder text = new StringBuilder(e.id).append(String.format(Locale.ROOT, " @%.1fs", e.delaySeconds));
             if (e.actorName != null) text.append(" as ").append(e.actorName);
             if (Boolean.TRUE.equals(e.hideNametag)) text.append(" [no tag]");
             label(x, y, w - 100, Component.literal(text.toString()));
-            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> ClientCompat.setScreen(minecraft, new ActorEditScreen(this, e.recording, scene.name)))
+            addRenderableWidget(Button.builder(Component.literal("Edit"), b -> ClientCompat.setScreen(minecraft, new ActorEditScreen(this, e.id, scene.name)))
                     .bounds(x + w - 96, y, 46, 20).build());
-            addRenderableWidget(Button.builder(Component.literal("Remove").withStyle(ChatFormatting.RED), b -> ClientState.send("scene_remove", scene.name, e.recording))
+            addRenderableWidget(Button.builder(Component.literal("Remove").withStyle(ChatFormatting.RED), b -> ClientState.send("scene_remove", scene.name, e.id))
                     .bounds(x + w - 48, y, 48, 20).build());
             y += ROW;
         }

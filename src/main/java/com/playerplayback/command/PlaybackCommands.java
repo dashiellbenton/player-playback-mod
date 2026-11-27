@@ -16,6 +16,7 @@ import com.playerplayback.PlaybackService;
 import com.playerplayback.PlaybackService.Result;
 import com.playerplayback.playback.Playback;
 import com.playerplayback.recording.Recorder;
+import com.playerplayback.scene.Formation;
 import com.playerplayback.scene.Scene;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
@@ -47,7 +48,7 @@ public final class PlaybackCommands {
             SharedSuggestionProvider.suggest(svc().playback.list().stream().map(p -> String.valueOf(p.id)), b);
     private static final SuggestionProvider<CommandSourceStack> SCENE_RECORDINGS = (ctx, b) -> {
         Scene s = svc().scenes.get(StringArgumentType.getString(ctx, "scene"));
-        return s == null ? b.buildFuture() : SharedSuggestionProvider.suggest(s.entries.stream().map(e -> e.recording), b);
+        return s == null ? b.buildFuture() : SharedSuggestionProvider.suggest(s.entries.stream().map(e -> e.id), b);
     };
 
     private static PlaybackService svc() {
@@ -91,7 +92,8 @@ public final class PlaybackCommands {
                                                 StringArgumentType.getString(c, "newName")))))))
                 .then(literal("actor")
                         .then(appearanceArgs(argument("recording", StringArgumentType.word()).suggests(RECORDINGS), c -> null)))
-                .then(sceneCommand()));
+                .then(sceneCommand())
+                .then(crowdCommand()));
 
         dispatcher.register(literal("pb").requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)).redirect(root));
     }
@@ -195,10 +197,17 @@ public final class PlaybackCommands {
                                         .executes(c -> reply(c, svc().addToScene(scene(c), rec(c),
                                                 (int) Math.round(DoubleArgumentType.getDouble(c, "delaySeconds") * 1000))))))))
                 .then(literal("remove").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
-                        .then(argument("recording", StringArgumentType.word()).suggests(SCENE_RECORDINGS)
+                        .then(argument("recording", StringArgumentType.greedyString()).suggests(SCENE_RECORDINGS)
                                 .executes(c -> reply(c, svc().removeFromScene(scene(c), rec(c)))))))
+                .then(literal("clear").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .executes(c -> reply(c, svc().clearScene(scene(c))))))
+                .then(literal("delay").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(argument("recording", StringArgumentType.string()).suggests(SCENE_RECORDINGS)
+                                .then(argument("seconds", DoubleArgumentType.doubleArg(0))
+                                        .executes(c -> reply(c, svc().setSceneDelay(scene(c), rec(c),
+                                                (int) Math.round(DoubleArgumentType.getDouble(c, "seconds") * 1000))))))))
                 .then(literal("offset").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
-                        .then(argument("recording", StringArgumentType.word()).suggests(SCENE_RECORDINGS)
+                        .then(argument("recording", StringArgumentType.string()).suggests(SCENE_RECORDINGS)
                                 .then(argument("dx", DoubleArgumentType.doubleArg())
                                         .then(argument("dy", DoubleArgumentType.doubleArg())
                                                 .then(argument("dz", DoubleArgumentType.doubleArg())
@@ -216,11 +225,57 @@ public final class PlaybackCommands {
                 .then(literal("stop").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
                         .executes(c -> reply(c, svc().stopScene(scene(c))))))
                 .then(literal("actor").then(sceneArg
-                        .then(appearanceArgs(argument("recording", StringArgumentType.word()).suggests(SCENE_RECORDINGS), PlaybackCommands::scene))));
+                        .then(appearanceArgs(argument("recording", StringArgumentType.string()).suggests(SCENE_RECORDINGS), PlaybackCommands::scene))));
     }
 
     private static String scene(CommandContext<CommandSourceStack> c) {
         return StringArgumentType.getString(c, "scene");
+    }
+
+    // ------------------------------------------------------------------ crowds
+
+    private static final SuggestionProvider<CommandSourceStack> FORMATIONS = (ctx, b) ->
+            SharedSuggestionProvider.suggest(java.util.Arrays.stream(Formation.values()).map(f -> f.name().toLowerCase(Locale.ROOT)), b);
+
+    private static LiteralArgumentBuilder<CommandSourceStack> crowdCommand() {
+        return literal("crowd")
+                .then(literal("add").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(argument("recording", StringArgumentType.word()).suggests(RECORDINGS)
+                                .then(argument("count", IntegerArgumentType.integer(1, 1000))
+                                        .executes(c -> crowd(c, "grid", 1.5, 0.6))
+                                        .then(argument("formation", StringArgumentType.word()).suggests(FORMATIONS)
+                                                .executes(c -> crowd(c, StringArgumentType.getString(c, "formation"), 1.5, 0.6))
+                                                .then(argument("spacing", DoubleArgumentType.doubleArg(0.3, 50))
+                                                        .executes(c -> crowd(c, StringArgumentType.getString(c, "formation"), DoubleArgumentType.getDouble(c, "spacing"), 0.6))
+                                                        .then(argument("jitterSeconds", DoubleArgumentType.doubleArg(0, 30))
+                                                                .executes(c -> crowd(c, StringArgumentType.getString(c, "formation"),
+                                                                        DoubleArgumentType.getDouble(c, "spacing"), DoubleArgumentType.getDouble(c, "jitterSeconds"))))))))))
+                .then(literal("skins").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(argument("usernames", StringArgumentType.greedyString()).executes(c -> {
+                            List<String> users = java.util.Arrays.stream(StringArgumentType.getString(c, "usernames").split("[\\s,]+"))
+                                    .filter(u -> !u.isBlank()).toList();
+                            c.getSource().sendSuccess(() -> Component.literal("Fetching " + users.size() + " skins...").withStyle(ChatFormatting.GRAY), false);
+                            svc().crowdSkins(scene(c), users, r -> send(c.getSource(), r));
+                            return 1;
+                        }))))
+                .then(literal("names").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(literal("reset").executes(c -> reply(c, svc().crowdNames(scene(c), ""))))
+                        .then(argument("prefix", StringArgumentType.word())
+                                .executes(c -> reply(c, svc().crowdNames(scene(c), StringArgumentType.getString(c, "prefix")))))))
+                .then(literal("nametags").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(literal("hide").executes(c -> reply(c, svc().crowdNametags(scene(c), true))))
+                        .then(literal("show").executes(c -> reply(c, svc().crowdNametags(scene(c), false))))
+                        .then(literal("reset").executes(c -> reply(c, svc().crowdNametags(scene(c), null))))));
+    }
+
+    private static int crowd(CommandContext<CommandSourceStack> c, String formation, double spacing, double jitter) {
+        Formation f;
+        try {
+            f = Formation.valueOf(formation.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return reply(c, Result.fail("Unknown formation. Use grid, line, column, wedge, circle or random"));
+        }
+        return reply(c, svc().addCrowd(scene(c), rec(c), IntegerArgumentType.getInteger(c, "count"), f, spacing, jitter));
     }
 
     // ------------------------------------------------------------------ listing
@@ -252,7 +307,7 @@ public final class PlaybackCommands {
         CommandSourceStack src = c.getSource();
         src.sendSuccess(() -> Component.literal("Scenes:").withStyle(ChatFormatting.GOLD), false);
         for (Scene s : svc().scenes.all()) {
-            src.sendSuccess(() -> Component.literal(" - " + s.name + " (" + s.entries.size() + " recordings)"), false);
+            src.sendSuccess(() -> Component.literal(" - " + s.name + " (" + s.entries.size() + " actors)"), false);
         }
         return 1;
     }
@@ -262,8 +317,15 @@ public final class PlaybackCommands {
         if (s == null) return reply(c, Result.fail("Unknown scene"));
         CommandSourceStack src = c.getSource();
         src.sendSuccess(() -> Component.literal("Scene " + s.name + ":").withStyle(ChatFormatting.GOLD), false);
+        int shown = 0;
         for (Scene.Entry e : s.entries) {
-            StringBuilder sb = new StringBuilder(" - ").append(e.recording).append(" @ ").append(e.delayMs / 1000.0).append("s");
+            if (++shown > 40) {
+                int rest = s.entries.size() - 40;
+                src.sendSuccess(() -> Component.literal(" ... and " + rest + " more").withStyle(ChatFormatting.GRAY), false);
+                break;
+            }
+            StringBuilder sb = new StringBuilder(" - ").append(e.id).append(" @ ").append(e.delayMs / 1000.0).append("s");
+            if (e.speed != 1.0) sb.append(String.format(Locale.ROOT, " x%.2f", e.speed));
             if (e.offsetX != 0 || e.offsetY != 0 || e.offsetZ != 0) sb.append(String.format(Locale.ROOT, " offset %.1f %.1f %.1f", e.offsetX, e.offsetY, e.offsetZ));
             if (e.appearance.name != null) sb.append(" name=").append(e.appearance.name);
             if (e.appearance.skinSource != null) sb.append(" skin=").append(e.appearance.skinSource);

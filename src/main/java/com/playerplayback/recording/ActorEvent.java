@@ -6,7 +6,8 @@ import net.minecraft.nbt.CompoundTag;
  * A discrete thing that happened at a point in time during a recording.
  */
 public sealed interface ActorEvent permits ActorEvent.Swing, ActorEvent.Animate, ActorEvent.Hurt,
-        ActorEvent.EntityEvent, ActorEvent.Equip, ActorEvent.Block {
+        ActorEvent.EntityEvent, ActorEvent.Equip, ActorEvent.Block,
+        ActorEvent.Sound, ActorEvent.ProjectileStart, ActorEvent.ProjectileMove, ActorEvent.ProjectileEnd {
 
     int timeMs();
 
@@ -30,4 +31,18 @@ public sealed interface ActorEvent permits ActorEvent.Swing, ActorEvent.Animate,
 
     /** Block placed/broken by the recorded player. {@code state} is the new block state. */
     record Block(int timeMs, int x, int y, int z, CompoundTag state, boolean broken) implements ActorEvent {}
+
+    /** A sound made by the recorded player, at an absolute position. */
+    record Sound(int timeMs, String sound, String source, double x, double y, double z, float volume, float pitch, long seed) implements ActorEvent {}
+
+    /**
+     * A projectile thrown/shot by the recorded player (ender pearl, arrow, trident, potion...).
+     * {@code id} is local to the recording; {@code item} is the displayed item (may be empty).
+     */
+    record ProjectileStart(int timeMs, int id, String type, double x, double y, double z,
+                           double vx, double vy, double vz, float yaw, float pitch, CompoundTag item) implements ActorEvent {}
+
+    record ProjectileMove(int timeMs, int id, double x, double y, double z, float yaw, float pitch) implements ActorEvent {}
+
+    record ProjectileEnd(int timeMs, int id) implements ActorEvent {}
 }

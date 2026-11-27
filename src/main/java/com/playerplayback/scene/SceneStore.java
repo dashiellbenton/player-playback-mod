@@ -59,6 +59,8 @@ public final class SceneStore {
             for (Scene.Entry e : s.entries) {
                 if (e.recording.equals(from)) {
                     e.recording = to;
+                    if (e.id.equals(from)) e.id = s.newId(to);
+                    else if (e.id.startsWith(from + "+")) e.id = to + e.id.substring(from.length());
                     changed = true;
                 }
             }
@@ -82,7 +84,11 @@ public final class SceneStore {
                     String fileName = file.getFileName().toString();
                     s.name = fileName.substring(0, fileName.length() - ".json".length());
                     if (s.entries == null) s.entries = new java.util.ArrayList<>();
-                    for (Scene.Entry e : s.entries) if (e.appearance == null) e.appearance = new Appearance();
+                    for (Scene.Entry e : s.entries) {
+                        if (e.appearance == null) e.appearance = new Appearance();
+                        if (e.speed <= 0) e.speed = 1.0;
+                    }
+                    for (Scene.Entry e : s.entries) if (e.id == null) e.id = s.newId(e.recording);
                     scenes.put(s.name, s);
                 } catch (Exception e) {
                     PlayerPlayback.LOGGER.error("Failed to read scene {}", file, e);

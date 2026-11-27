@@ -17,6 +17,9 @@ dependencies {
 
     modImplementation("net.fabricmc:fabric-loader:${sc.properties["deps.fabric_loader"]}")
     modImplementation("net.fabricmc.fabric-api:fabric-api:${sc.properties["deps.fabric_api"]}")
+
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.4")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher:1.11.4")
 }
 
 loom {
@@ -44,6 +47,10 @@ java {
 }
 
 tasks {
+    test {
+        useJUnitPlatform()
+    }
+
     processResources {
         fun MutableMap<String, String>.register(key: String, value: String) {
             inputs.property(key, value)

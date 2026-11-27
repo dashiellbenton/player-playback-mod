@@ -7,6 +7,7 @@ import com.playerplayback.network.StatePayload;
 import com.playerplayback.recording.Recorder;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
@@ -15,6 +16,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.block.Blocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +73,7 @@ public class PlayerPlayback implements ModInitializer {
             for (Recorder r : new ArrayList<>(s.recorders())) {
                 ServerPlayer p = server.getPlayerList().getPlayer(r.playerId);
                 if (p != null) s.sample(p, false);
+                r.sampleProjectiles();
             }
             // Keep the "recording for N seconds" display in open GUIs fresh (about once per second of real time).
             if (!s.recorders().isEmpty() && System.currentTimeMillis() / 1000 != lastGuiRefresh) {
@@ -90,6 +93,15 @@ public class PlayerPlayback implements ModInitializer {
             }
             ServerNetworking net = networking;
             if (net != null) net.unsubscribe(p.getUUID());
+        });
+
+        ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> {
+            PlaybackService s = service;
+            if (s == null || !(entity instanceof Projectile projectile)) return;
+            if (projectile.getOwner() instanceof ServerPlayer owner) {
+                Recorder r = s.recorderOf(owner);
+                if (r != null) r.projectileLaunched(projectile);
+            }
         });
 
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) -> {

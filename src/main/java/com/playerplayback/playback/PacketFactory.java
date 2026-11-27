@@ -60,6 +60,25 @@ public final class PacketFactory {
                 f.pitch(), f.yaw(), PLAYER_TYPE, 0, Vec3.ZERO, f.headYaw());
     }
 
+    /** Spawns a visual-only projectile; {@code ownerId} lets arrows/hooks link to the actor. */
+    public static ClientboundAddEntityPacket addProjectile(int id, EntityType<?> type, double x, double y, double z,
+                                                         float yaw, float pitch, Vec3 velocity, int ownerId) {
+        return new ClientboundAddEntityPacket(id, UUID.randomUUID(), x, y, z, pitch, yaw, type, ownerId, velocity, yaw);
+    }
+
+    public static ClientboundSetEntityDataPacket projectileItem(int id, ItemStack item) {
+        return new ClientboundSetEntityDataPacket(id, List.of(
+                SynchedEntityData.DataValue.create(com.playerplayback.mixin.ThrowableItemProjectileAccessor.pp$item(), item)));
+    }
+
+    public static Packet<?> sound(String soundId, String sourceName, double x, double y, double z, float volume, float pitch, long seed) {
+        net.minecraft.sounds.SoundSource source = net.minecraft.sounds.SoundSource.PLAYERS;
+        for (net.minecraft.sounds.SoundSource s : net.minecraft.sounds.SoundSource.values()) if (s.getName().equals(sourceName)) source = s;
+        net.minecraft.core.Holder<net.minecraft.sounds.SoundEvent> holder = net.minecraft.core.Holder.direct(
+                net.minecraft.sounds.SoundEvent.createVariableRangeEvent(net.minecraft.resources.Identifier.parse(soundId)));
+        return new ClientboundSoundPacket(holder, source, x, y, z, volume, pitch, seed);
+    }
+
     public static ClientboundRemoveEntitiesPacket removeEntity(int id) {
         return new ClientboundRemoveEntitiesPacket(id);
     }

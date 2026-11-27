@@ -7,11 +7,17 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.projectile.throwableitemprojectile.ThrowableItemProjectile;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.EnumMap;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 
@@ -46,6 +52,10 @@ public final class Recorder {
     private Frame lastFrame;
     private final Map<EquipmentSlot, ItemStack> lastEquipment = new EnumMap<>(EquipmentSlot.class);
     private boolean full;
+    /** Projectiles the player launched that are still flying: entity -> local id. */
+    private final Map<Entity, Integer> projectiles = new IdentityHashMap<>();
+    private final Map<Entity, double[]> projectileLast = new IdentityHashMap<>();
+    private int nextProjectileId;
 
     public Recorder(String name, ServerPlayer player, boolean recordBlocks, String scene) {
         this.name = name;
@@ -118,12 +128,57 @@ public final class Recorder {
         if (!full) recording.events.add(event);
     }
 
+    /** A projectile owned by this player was added to the world. */
+    public void projectileLaunched(Projectile p) {
+        if (full || projectiles.containsKey(p)) return;
+        int id = nextProjectileId++;
+        projectiles.put(p, id);
+        projectileLast.put(p, new double[]{p.getX(), p.getY(), p.getZ()});
+        CompoundTag item = new CompoundTag();
+        if (p instanceof ThrowableItemProjectile thrown) item = ItemCodec.encode(thrown.getItem(), p.registryAccess());
+        var v = p.getDeltaMovement();
+        String type = BuiltInRegistries.ENTITY_TYPE.getKey(p.getType()).toString();
+        event(new ActorEvent.ProjectileStart(nowMs(), id, type, p.getX(), p.getY(), p.getZ(), v.x, v.y, v.z, p.getYRot(), p.getXRot(), item));
+    }
+
+    /** Called every server tick: follows flying projectiles. */
+    public void sampleProjectiles() {
+        if (projectiles.isEmpty()) return;
+        int t = nowMs();
+        Iterator<Map.Entry<Entity, Integer>> it = projectiles.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Entity, Integer> e = it.next();
+            Entity p = e.getKey();
+            if (p.isRemoved()) {
+                event(new ActorEvent.ProjectileEnd(t, e.getValue()));
+                projectileLast.remove(p);
+                it.remove();
+                continue;
+            }
+            double[] last = projectileLast.get(p);
+            if (last[0] != p.getX() || last[1] != p.getY() || last[2] != p.getZ()) {
+                event(new ActorEvent.ProjectileMove(t, e.getValue(), p.getX(), p.getY(), p.getZ(), p.getYRot(), p.getXRot()));
+                last[0] = p.getX();
+                last[1] = p.getY();
+                last[2] = p.getZ();
+            }
+        }
+    }
+
+    public void sound(String sound, String source, double x, double y, double z, float volume, float pitch, long seed) {
+        event(new ActorEvent.Sound(nowMs(), sound, source, x, y, z, volume, pitch, seed));
+    }
+
     public void blockChange(int x, int y, int z, CompoundTag state, boolean broken) {
         if (recordBlocks) event(new ActorEvent.Block(nowMs(), x, y, z, state, broken));
     }
 
     public Recording finish(ServerPlayer player) {
         if (player != null) sample(player, true);
+        int end = nowMs();
+        for (Integer id : projectiles.values()) recording.events.add(new ActorEvent.ProjectileEnd(end, id));
+        projectiles.clear();
+        projectileLast.clear();
         recording.durationMs = lastFrame == null ? 0 : Math.max(lastFrame.timeMs(), nowMs());
         // Make sure the final pose is held until the end.
         if (lastFrame != null && lastFrame.timeMs() < recording.durationMs) {

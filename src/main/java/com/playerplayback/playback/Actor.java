@@ -35,6 +35,9 @@ public final class Actor {
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1_600_000_000);
 
     public final String recordingName;
+    /** Scene entry id, or null when playing a recording on its own. */
+    public final String entryId;
+    public final double speed;
     public final Recording recording;
     public final int delayMs;
     public final Vec3 offset;
@@ -58,9 +61,23 @@ public final class Actor {
     private float sentYaw, sentPitch, sentHead;
     private boolean dead;
 
-    public Actor(String recordingName, Recording recording, Appearance appearance, int delayMs, Vec3 offset,
-                 HolderLookup.Provider registries) {
+    /** A projectile currently in flight on the playback timeline. */
+    private static final class Proj {
+        final int entityId = NEXT_ID.getAndIncrement();
+        net.minecraft.world.entity.EntityType<?> type;
+        double x, y, z;
+        float yaw, pitch;
+        Vec3 velocity;
+        ItemStack item;
+    }
+
+    private final Map<Integer, Proj> projectiles = new HashMap<>();
+
+    public Actor(String recordingName, String entryId, Recording recording, Appearance appearance, int delayMs, double speed,
+                 Vec3 offset, HolderLookup.Provider registries) {
         this.recordingName = recordingName;
+        this.entryId = entryId;
+        this.speed = speed <= 0 ? 1.0 : speed;
         this.recording = recording;
         this.delayMs = delayMs;
         this.offset = offset;
@@ -111,6 +128,7 @@ public final class Actor {
         eventIndex = 0;
         lastTimeMs = Integer.MIN_VALUE;
         resetEquipment();
+        removeAllProjectiles();
         if (dead) {
             dead = false;
             despawnAll();
@@ -126,7 +144,7 @@ public final class Actor {
      * @param range      tracking range in blocks
      */
     public void update(int sceneTimeMs, List<ServerPlayer> candidates, double range, Playback.BlockSink blocks) {
-        int t = sceneTimeMs - delayMs;
+        int t = (int) ((sceneTimeMs - delayMs) * speed);
         if (t < 0 || recording.frames.isEmpty()) {
             despawnAll();
             return;
@@ -179,6 +197,38 @@ public final class Actor {
             case ActorEvent.Block b -> {
                 if (blocks != null) blocks.apply(dimension, b.x() + offset.x, b.y() + offset.y, b.z() + offset.z, b.state(), b.broken());
             }
+            case ActorEvent.Sound so -> broadcast(PacketFactory.sound(so.sound(), so.source(),
+                    so.x() + offset.x, so.y() + offset.y, so.z() + offset.z, so.volume(), so.pitch(), so.seed()));
+            case ActorEvent.ProjectileStart ps -> {
+                var type = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getValue(net.minecraft.resources.Identifier.parse(ps.type()));
+                if (type == null) return;
+                Proj p = new Proj();
+                p.type = type;
+                p.x = ps.x() + offset.x;
+                p.y = ps.y() + offset.y;
+                p.z = ps.z() + offset.z;
+                p.yaw = ps.yaw();
+                p.pitch = ps.pitch();
+                p.velocity = new Vec3(ps.vx(), ps.vy(), ps.vz());
+                p.item = ItemCodec.decode(ps.item(), registries);
+                Proj old = projectiles.put(ps.id(), p);
+                if (old != null) broadcast(PacketFactory.removeEntity(old.entityId));
+                for (ServerPlayer viewer : viewers.keySet()) spawnProjectile(viewer, p);
+            }
+            case ActorEvent.ProjectileMove pm -> {
+                Proj p = projectiles.get(pm.id());
+                if (p == null) return;
+                p.x = pm.x() + offset.x;
+                p.y = pm.y() + offset.y;
+                p.z = pm.z() + offset.z;
+                p.yaw = pm.yaw();
+                p.pitch = pm.pitch();
+                broadcast(PacketFactory.teleport(p.entityId, p.x, p.y, p.z, p.yaw, p.pitch, false));
+            }
+            case ActorEvent.ProjectileEnd pe -> {
+                Proj p = projectiles.remove(pe.id());
+                if (p != null) broadcast(PacketFactory.removeEntity(p.entityId));
+            }
         }
     }
 
@@ -223,14 +273,29 @@ public final class Actor {
         send(p, PacketFactory.fullData(entityId, f));
         send(p, PacketFactory.rotateHead(entityId, f.headYaw()));
         if (!equipment.isEmpty()) send(p, PacketFactory.equipment(entityId, equipment));
+        for (Proj proj : projectiles.values()) spawnProjectile(p, proj);
+    }
+
+    private void spawnProjectile(ServerPlayer viewer, Proj p) {
+        send(viewer, PacketFactory.addProjectile(p.entityId, p.type, p.x, p.y, p.z, p.yaw, p.pitch, p.velocity, entityId));
+        if (!p.item.isEmpty()) send(viewer, PacketFactory.projectileItem(p.entityId, p.item));
+    }
+
+    private void removeAllProjectiles() {
+        for (Proj p : projectiles.values()) broadcast(PacketFactory.removeEntity(p.entityId));
+        projectiles.clear();
     }
 
     private void sendDespawn(ServerPlayer p, boolean removeEntity) {
-        if (removeEntity) send(p, PacketFactory.removeEntity(entityId));
+        if (removeEntity) {
+            send(p, PacketFactory.removeEntity(entityId));
+            for (Proj proj : projectiles.values()) send(p, PacketFactory.removeEntity(proj.entityId));
+        }
         send(p, PacketFactory.removePlayerInfo(profile.id()));
         send(p, PacketFactory.removeTeam(team));
     }
 
+    /** Removes the actor and its projectiles from every viewer. */
     public void despawnAll() {
         for (ServerPlayer p : viewers.keySet()) sendDespawn(p, true);
         viewers.clear();
@@ -294,6 +359,11 @@ public final class Actor {
     static EquipmentSlot slotByName(String name) {
         for (EquipmentSlot s : EquipmentSlot.values()) if (s.getName().equals(name)) return s;
         return null;
+    }
+
+    /** Length of this actor on the scene timeline. */
+    public int endMs() {
+        return delayMs + (int) Math.ceil(recording.durationMs / speed);
     }
 
     public Appearance appearance() {

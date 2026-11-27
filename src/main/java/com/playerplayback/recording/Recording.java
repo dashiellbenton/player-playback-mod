@@ -17,9 +17,10 @@ import java.util.zip.GZIPOutputStream;
  */
 public final class Recording {
     private static final int MAGIC = 0x50505243; // "PPRC"
-    private static final int FORMAT = 1;
+    private static final int FORMAT = 2;
 
-    private static final byte EV_SWING = 1, EV_ANIM = 2, EV_HURT = 3, EV_ENTITY = 4, EV_EQUIP = 5, EV_BLOCK = 6;
+    private static final byte EV_SWING = 1, EV_ANIM = 2, EV_HURT = 3, EV_ENTITY = 4, EV_EQUIP = 5, EV_BLOCK = 6,
+            EV_SOUND = 7, EV_PROJ_START = 8, EV_PROJ_MOVE = 9, EV_PROJ_END = 10;
 
     public String originalName;
     public UUID originalUuid;
@@ -118,6 +119,44 @@ public final class Recording {
                     out.writeBoolean(b.broken());
                     NbtIo.write(b.state(), out);
                 }
+                case ActorEvent.Sound so -> {
+                    out.writeByte(EV_SOUND);
+                    out.writeUTF(so.sound());
+                    out.writeUTF(so.source());
+                    out.writeDouble(so.x());
+                    out.writeDouble(so.y());
+                    out.writeDouble(so.z());
+                    out.writeFloat(so.volume());
+                    out.writeFloat(so.pitch());
+                    out.writeLong(so.seed());
+                }
+                case ActorEvent.ProjectileStart ps -> {
+                    out.writeByte(EV_PROJ_START);
+                    out.writeInt(ps.id());
+                    out.writeUTF(ps.type());
+                    out.writeDouble(ps.x());
+                    out.writeDouble(ps.y());
+                    out.writeDouble(ps.z());
+                    out.writeDouble(ps.vx());
+                    out.writeDouble(ps.vy());
+                    out.writeDouble(ps.vz());
+                    out.writeFloat(ps.yaw());
+                    out.writeFloat(ps.pitch());
+                    NbtIo.write(ps.item(), out);
+                }
+                case ActorEvent.ProjectileMove pm -> {
+                    out.writeByte(EV_PROJ_MOVE);
+                    out.writeInt(pm.id());
+                    out.writeDouble(pm.x());
+                    out.writeDouble(pm.y());
+                    out.writeDouble(pm.z());
+                    out.writeFloat(pm.yaw());
+                    out.writeFloat(pm.pitch());
+                }
+                case ActorEvent.ProjectileEnd pe -> {
+                    out.writeByte(EV_PROJ_END);
+                    out.writeInt(pe.id());
+                }
             }
         }
     }
@@ -183,6 +222,19 @@ public final class Recording {
                     boolean broken = in.readBoolean();
                     r.events.add(new ActorEvent.Block(t, x, y, z, NbtIo.read(in, NbtAccounter.unlimitedHeap()), broken));
                 }
+                case EV_SOUND -> r.events.add(new ActorEvent.Sound(t, in.readUTF(), in.readUTF(), in.readDouble(), in.readDouble(),
+                        in.readDouble(), in.readFloat(), in.readFloat(), in.readLong()));
+                case EV_PROJ_START -> {
+                    int id = in.readInt();
+                    String pt = in.readUTF();
+                    double x = in.readDouble(), y = in.readDouble(), z = in.readDouble();
+                    double vx = in.readDouble(), vy = in.readDouble(), vz = in.readDouble();
+                    float yaw = in.readFloat(), pitch = in.readFloat();
+                    r.events.add(new ActorEvent.ProjectileStart(t, id, pt, x, y, z, vx, vy, vz, yaw, pitch, NbtIo.read(in, NbtAccounter.unlimitedHeap())));
+                }
+                case EV_PROJ_MOVE -> r.events.add(new ActorEvent.ProjectileMove(t, in.readInt(), in.readDouble(), in.readDouble(),
+                        in.readDouble(), in.readFloat(), in.readFloat()));
+                case EV_PROJ_END -> r.events.add(new ActorEvent.ProjectileEnd(t, in.readInt()));
                 default -> throw new IOException("Unknown event type " + type);
             }
         }
