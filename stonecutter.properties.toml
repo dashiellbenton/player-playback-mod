@@ -2,7 +2,7 @@
 mod.id = "playerplayback"
 mod.name = "Player Playback"
 mod.group = "com.playerplayback"
-mod.version = "1.0.0"
+mod.version = "1.1.0"
 
 deps.fabric_loader = "0.20.1"
 loomx.loom_version = "1.19-SNAPSHOT"
