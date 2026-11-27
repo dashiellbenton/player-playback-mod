@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "package": "com.playerplayback.mixin",
+  "compatibilityLevel": "${java}",
+  "mixins": [
+    "AvatarAccessor",
+    "ConnectionAccessor",
+    "BlockItemMixin",
+    "EntityAccessor",
+    "EntitySelectorMixin",
+    "LivingEntityAccessor",
+    "LivingEntityAttackAccessor",
+    "PlayerAttackMixin",
+    "PlayerInfoUpdatePacketAccessor",
+    "PlayerListAccessor",
+    "ServerGamePacketListenerAccessor",
+    "ServerGamePacketListenerMixin",
+    "ServerLevelSoundMixin",
+    "ThrowableItemProjectileAccessor",
+    "TrackedEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

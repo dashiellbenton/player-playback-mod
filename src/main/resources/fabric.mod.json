@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "${id}",
+  "version": "${version}",
+  "name": "${name}",
+  "description": "Record players and play many recordings back at once as fake player actors, for big scripted scenes without needing lots of people online.",
+  "authors": ["Player Playback contributors"],
+  "license": "MIT",
+  "icon": "assets/playerplayback/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.playerplayback.PlayerPlayback"],
+    "client": ["com.playerplayback.client.PlayerPlaybackClient"]
+  },
+  "mixins": ["playerplayback.mixins.json"],
+  "depends": {
+    "fabricloader": ">=${loader}",
+    "minecraft": "${minecraft}",
+    "java": ">=${java}",
+    "fabric-api": "*"
+  }
+}
