@@ -1,5 +1,7 @@
 # Player Playback
 
+_Player playback mod for scripted fight scenes (and other scenes) with a ton of players._
+
 A Fabric mod for filming big scripted Minecraft scenes (battles, chases, armies charging a base) without needing lots of people online.
 
 Record a few players ("takes"), then play many takes back at once as **fake player actors**. One take can be cloned into a crowd of a hundred soldiers in a formation. Actors can wear any skin, use any name, or have their nametag hidden.
