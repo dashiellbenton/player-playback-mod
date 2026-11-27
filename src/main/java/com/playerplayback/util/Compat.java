@@ -122,6 +122,49 @@ public final class Compat {
         *///?}
     }
 
+    // ------------------------------------------------------------------ world restore
+
+    /** Absolute time of day of the level's main clock. */
+    public static long getTime(net.minecraft.server.level.ServerLevel level) {
+        //? if >=26.3 {
+        var clock = level.dimensionTypeRegistration().value().defaultClock();
+        return clock.map(c -> level.getServer().clockManager().getInstance(c).totalTicks()).orElse(0L);
+        //?} else if >=26.1 {
+        /*var clock = level.dimensionTypeRegistration().value().defaultClock();
+        return clock.map(c -> level.getServer().clockManager().getTotalTicks(c)).orElse(0L);
+        *///?} else {
+        /*return level.getDayTime();
+        *///?}
+    }
+
+    public static void setTime(net.minecraft.server.level.ServerLevel level, long time) {
+        //? if >=26.1 {
+        level.dimensionTypeRegistration().value().defaultClock()
+                .ifPresent(c -> level.getServer().clockManager().setTotalTicks(c, time));
+        //?} else {
+        /*level.setDayTime(time);
+        *///?}
+    }
+
+    public static void setWeather(net.minecraft.server.level.ServerLevel level, boolean raining, boolean thundering) {
+        int clear = raining ? 0 : 6000, duration = raining ? 6000 : 0;
+        //? if >=26.1 {
+        level.getServer().setWeatherParameters(clear, duration, raining, thundering);
+        //?} else {
+        /*level.setWeatherParameters(clear, duration, raining, thundering);
+        *///?}
+    }
+
+    /** Loads an entity (and its passengers) saved with saveAsPassenger. */
+    public static net.minecraft.world.entity.Entity loadEntity(net.minecraft.nbt.CompoundTag tag, net.minecraft.server.level.ServerLevel level) {
+        //? if >=26.2 {
+        return net.minecraft.world.entity.EntityType.loadEntityRecursive(tag, level,
+                new net.minecraft.world.entity.EntitySpawnRequest(net.minecraft.world.entity.EntitySpawnReason.LOAD, true), e -> e);
+        //?} else {
+        /*return net.minecraft.world.entity.EntityType.loadEntityRecursive(tag, level, net.minecraft.world.entity.EntitySpawnReason.LOAD, e -> e);
+        *///?}
+    }
+
     public static Packet<?> animatePacket(int entityId, int kind) {
         int action = switch (kind) {
             case ActorEvent.ANIM_CRIT -> ClientboundAnimatePacket.CRITICAL_HIT;

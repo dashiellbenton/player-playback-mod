@@ -96,6 +96,15 @@ public final class PlaybackCommands {
                                                 StringArgumentType.getString(c, "newName")))))))
                 .then(literal("actor")
                         .then(appearanceArgs(argument("recording", StringArgumentType.word()).suggests(RECORDINGS), c -> null)))
+                .then(literal("restore")
+                        .then(literal("on").executes(c -> reply(c, svc().setRestoreWorld(true))))
+                        .then(literal("off").executes(c -> reply(c, svc().setRestoreWorld(false))))
+                        .then(literal("radius").then(argument("chunks", IntegerArgumentType.integer(1, 32))
+                                .executes(c -> reply(c, svc().setSnapshotRadius(IntegerArgumentType.getInteger(c, "chunks"))))))
+                        .then(literal("recording").then(argument("recording", StringArgumentType.word()).suggests(RECORDINGS)
+                                .executes(c -> reply(c, svc().restoreRecording(rec(c))))))
+                        .then(literal("scene").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                                .executes(c -> reply(c, svc().restoreScene(scene(c)))))))
                 .then(sceneCommand())
                 .then(crowdCommand()));
 
