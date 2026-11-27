@@ -48,6 +48,7 @@ public final class PlaybackService {
     public final AppearanceStore appearances;
     public final SceneStore scenes;
     public final PlaybackManager playback;
+    public final com.playerplayback.world.Settings settings;
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "Player Playback IO");
         t.setDaemon(true);
@@ -61,6 +62,7 @@ public final class PlaybackService {
         this.recordingsDir = root.resolve("recordings");
         this.appearances = new AppearanceStore(root.resolve("appearances.json"));
         this.scenes = new SceneStore(root.resolve("scenes"));
+        this.settings = com.playerplayback.world.Settings.load(root.resolve("settings.json"));
         this.playback = new PlaybackManager(server);
         this.playback.setChangeListener(() -> changeListener.run());
         scanRecordings();
@@ -92,6 +94,88 @@ public final class PlaybackService {
 
     private Path fileOf(String name) {
         return recordingsDir.resolve(name + ".pprec");
+    }
+
+    private Path worldFileOf(String name) {
+        return recordingsDir.resolve(name + ".ppworld");
+    }
+
+    // ------------------------------------------------------------------ world snapshots
+
+    private void captureSnapshot(String name, ServerPlayer player) {
+        int radius = Math.max(1, Math.min(settings.snapshotRadius, server.getPlayerList().getViewDistance()));
+        long start = System.nanoTime();
+        com.playerplayback.world.WorldSnapshot snap = com.playerplayback.world.WorldSnapshot.capture(
+                player.level(), player.getBlockX() >> 4, player.getBlockZ() >> 4, radius);
+        Path file = worldFileOf(name);
+        io.execute(() -> {
+            try {
+                snap.write(file);
+            } catch (IOException e) {
+                PlayerPlayback.LOGGER.error("Failed to save world snapshot {}", file, e);
+            }
+        });
+        PlayerPlayback.LOGGER.info("[Playback] Saved world snapshot for '{}' ({} chunks, {} ms)", name, snap.chunks.size(),
+                (System.nanoTime() - start) / 1_000_000);
+    }
+
+    /**
+     * Restores the world around the given recordings to how it was when they were recorded. With
+     * several takes, the oldest snapshot wins for chunks they share (the world before any take).
+     * Returns null if none of them has a snapshot.
+     */
+    public String restoreWorld(Collection<String> recordings) {
+        Map<String, List<com.playerplayback.world.WorldSnapshot>> byDimension = new LinkedHashMap<>();
+        for (String r : new LinkedHashSet<>(recordings)) {
+            Path file = worldFileOf(r);
+            if (!Files.exists(file)) continue;
+            try {
+                var snap = com.playerplayback.world.WorldSnapshot.read(file);
+                byDimension.computeIfAbsent(snap.dimension, d -> new ArrayList<>()).add(snap);
+            } catch (IOException e) {
+                PlayerPlayback.LOGGER.error("Failed to read world snapshot {}", file, e);
+            }
+        }
+        if (byDimension.isEmpty()) return null;
+        long start = System.nanoTime();
+        int chunks = 0, blocks = 0, entities = 0;
+        for (var e : byDimension.entrySet()) {
+            net.minecraft.server.level.ServerLevel level = server.getLevel(net.minecraft.resources.ResourceKey.create(
+                    net.minecraft.core.registries.Registries.DIMENSION, net.minecraft.resources.Identifier.parse(e.getKey())));
+            if (level == null) continue;
+            var result = com.playerplayback.world.WorldSnapshot.merge(e.getValue()).restore(level);
+            chunks += result.chunks();
+            blocks += result.blocks();
+            entities += result.entitiesSpawned();
+        }
+        return String.format(Locale.ROOT, "Restored world: %d chunks, %d blocks changed back, %d entities (%d ms)",
+                chunks, blocks, entities, (System.nanoTime() - start) / 1_000_000);
+    }
+
+    public Result restoreRecording(String name) {
+        if (!recordingNames.contains(name)) return Result.fail("Unknown recording '" + name + "'");
+        String msg = restoreWorld(List.of(name));
+        return msg == null ? Result.fail("'" + name + "' has no world snapshot (recorded with an older version)") : Result.ok(msg);
+    }
+
+    public Result restoreScene(String scene) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        String msg = restoreWorld(sc.entries.stream().map(e -> e.recording).toList());
+        return msg == null ? Result.fail("No world snapshots for scene '" + scene + "'") : Result.ok(msg);
+    }
+
+    public Result setRestoreWorld(boolean on) {
+        settings.restoreWorld = on;
+        settings.save();
+        changed();
+        return Result.ok(on ? "The world will be restored before each playback" : "World restore before playback is off");
+    }
+
+    public Result setSnapshotRadius(int radius) {
+        settings.snapshotRadius = radius;
+        settings.save();
+        return Result.ok("New recordings will snapshot " + radius + " chunks around the player");
     }
 
     public SortedSet<String> recordingNames() {
@@ -141,12 +225,17 @@ public final class PlaybackService {
             sc = scenes.get(scene);
             if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
         }
+        String restored = null;
+        if (sc != null && !sc.entries.isEmpty() && settings.restoreWorld) {
+            restored = restoreWorld(sc.entries.stream().map(e -> e.recording).filter(r -> !r.equals(name)).toList());
+        }
+        captureSnapshot(name, player);
         Recorder recorder = new Recorder(name, player, blocks, scene);
         recorders.put(player.getUUID(), recorder);
-        String extra = "";
+        String extra = restored != null ? " (" + restored + ")" : "";
         if (sc != null && !sc.entries.isEmpty()) {
-            Result r = playScene(scene, false, 1.0, gameClock, recorder);
-            extra = r.ok() ? " while playing scene '" + scene + "'" : " (scene failed: " + r.message() + ")";
+            Result r = playScene(scene, false, 1.0, gameClock, recorder, false);
+            extra += r.ok() ? " while playing scene '" + scene + "'" : " (scene failed: " + r.message() + ")";
         }
         changed();
         return Result.ok("Recording '" + name + "' of " + player.getScoreboardName() + extra + ". Stop with /pb record stop");
@@ -216,8 +305,10 @@ public final class PlaybackService {
         appearances.remove(name);
         scenes.recordingDeleted(name);
         Path file = fileOf(name);
+        Path worldFile = worldFileOf(name);
         io.execute(() -> {
             try {
+                Files.deleteIfExists(worldFile);
                 Files.deleteIfExists(file);
             } catch (IOException e) {
                 PlayerPlayback.LOGGER.error("Failed to delete {}", file, e);
@@ -231,9 +322,10 @@ public final class PlaybackService {
         if (!recordingNames.contains(from)) return Result.fail("Unknown recording '" + from + "'");
         if (!Names.valid(to)) return Result.fail("Invalid name");
         if (recordingNames.contains(to)) return Result.fail("'" + to + "' already exists");
-        Path a = fileOf(from), b = fileOf(to);
+        Path a = fileOf(from), b = fileOf(to), wa = worldFileOf(from), wb = worldFileOf(to);
         io.execute(() -> {
             try {
+                if (Files.exists(wa)) Files.move(wa, wb);
                 Files.move(a, b);
             } catch (IOException e) {
                 PlayerPlayback.LOGGER.error("Failed to rename {}", a, e);
@@ -276,20 +368,23 @@ public final class PlaybackService {
             return Result.fail("Could not read '" + name + "': " + e.getMessage());
         }
         boolean blocks = rec.events.stream().anyMatch(e -> e instanceof com.playerplayback.recording.ActorEvent.Block);
+        String restored = settings.restoreWorld ? restoreWorld(List.of(name)) : null;
         Playback p = playback.create(name, null, loop, clampSpeed(speed), gameClock, blocks);
         p.actors.add(makeActor(real, name, null, rec, recordingAppearance(name), 0, 1.0, offset == null ? Vec3.ZERO : offset));
         playback.start(p);
-        return Result.ok("Playing '" + name + "'" + (real ? " as a real player" : "") + " (#" + p.id + ")");
+        return Result.ok("Playing '" + name + "'" + (real ? " as a real player" : "") + " (#" + p.id + ")"
+                + (restored != null ? ". " + restored : ""));
     }
 
     public Result playScene(String sceneName, boolean loop, double speed, boolean gameClock) {
-        return playScene(sceneName, loop, speed, gameClock, null);
+        return playScene(sceneName, loop, speed, gameClock, null, settings.restoreWorld);
     }
 
-    private Result playScene(String sceneName, boolean loop, double speed, boolean gameClock, Recorder forRecorder) {
+    private Result playScene(String sceneName, boolean loop, double speed, boolean gameClock, Recorder forRecorder, boolean restore) {
         Scene scene = scenes.get(sceneName);
         if (scene == null) return Result.fail("Unknown scene '" + sceneName + "'");
         if (scene.entries.isEmpty()) return Result.fail("Scene '" + sceneName + "' is empty");
+        String restored = restore ? restoreWorld(scene.entries.stream().map(e -> e.recording).toList()) : null;
         Playback p = playback.create(sceneName, sceneName, loop, clampSpeed(speed), gameClock, true);
         List<String> missing = new ArrayList<>();
         for (Scene.Entry e : scene.entries) {
@@ -315,6 +410,7 @@ public final class PlaybackService {
         String msg = "Playing scene '" + sceneName + "' with " + p.actors.size() + " actors"
                 + (realCount > 0 ? " (" + realCount + " real)" : "") + " (#" + p.id + ")";
         if (!missing.isEmpty()) msg += ". Missing: " + String.join(", ", missing);
+        if (restored != null) msg += ". " + restored;
         return Result.ok(msg);
     }
 

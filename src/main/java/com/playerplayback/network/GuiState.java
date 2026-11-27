@@ -9,6 +9,7 @@ public final class GuiState {
     public List<SceneInfo> scenes = new ArrayList<>();
     public List<Active> recordingNow = new ArrayList<>();
     public List<Play> playing = new ArrayList<>();
+    public boolean restoreWorld = true;
 
     public static final class Rec {
         public String name;

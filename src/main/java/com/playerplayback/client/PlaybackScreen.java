@@ -372,6 +372,10 @@ public class PlaybackScreen extends Screen {
     // ------------------------------------------------------------------ playing tab
 
     private void initPlaying(int y) {
+        boolean restore = ClientState.get().restoreWorld;
+        addRenderableWidget(Button.builder(Component.literal("Restore world before playing: " + (restore ? "On" : "Off")),
+                b -> ClientState.send("restore_toggle")).bounds(left, y, 220, 20).build());
+        y += ROW + 4;
         List<GuiState.Play> playing = ClientState.get().playing;
         if (playing.isEmpty()) {
             label(left, y, contentWidth, Component.literal("Nothing is playing.").withStyle(ChatFormatting.GRAY));

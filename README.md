@@ -25,9 +25,18 @@ Record a few players ("takes"), then play many takes back at once as **fake play
   * **melee attacks**: what was hit, the attack strength and whether it was a crit
   * **sounds** the player made: hits, pearl throws, eating, hurt…
   * optionally, **blocks** placed and broken. These are replayed and reverted when playback stops.
+* **World restore.**
+  * When recording starts, the mod snapshots the chunks loaded around the player (8 chunks by default): blocks, chest/sign/furnace contents, mobs and other entities, plus the time of day and weather.
+  * **Before every playback the area is put back exactly like that**, so each take and scene starts from the same world.
+  * Scenes combine the snapshots of all their takes, with the oldest take winning where they overlap.
+  * Layered takes (`record start … scene …`) restore the world before you start acting.
 * **`/tick rate` safe.** Everything is timed with the real-time clock, not by counting ticks. A take recorded at `/tick rate 5` still plays back at the speed the player really moved. Playback also runs on its own 20 Hz thread, so actors keep moving under `/tick freeze`. Add `gameclock` to a play command if you *want* actors to slow down and speed up with the tick rate.
 
-Supported Minecraft versions: **1.21.11, 26.1 / 26.1.1 / 26.1.2, 26.2, 26.3**. Each has its own jar, and each needs Fabric API.
+Supported Minecraft versions: **1.21.11, 26.1 / 26.1.1 / 26.1.2, 26.2, 26.3**. Each needs Fabric API.
+
+Download either:
+* **`playerplayback-<version>-universal.jar`**: one file for every supported Minecraft version. It contains all the version-specific builds, and Fabric Loader picks the matching one automatically.
+* **`playerplayback-<version>+<minecraft>.jar`**: just the build for one Minecraft version (smaller).
 
 ## Quick start: a 100-player charge from 3 takes
 
@@ -73,6 +82,9 @@ Crowd copies get small random start delays, ±5% speed and slight position noise
 | `scene delay <scene> <entry> <seconds>` | Change when an actor starts. |
 | `scene offset <scene> <entry> <dx> <dy> <dz>` | Move an actor relative to where it was recorded. |
 | `scene actor <scene> <entry> name\|skin\|nametag …` | Appearance for one actor in one scene. |
+| `restore on\|off` | Restore the world before each playback (on by default). |
+| `restore radius <chunks>` | How many chunks around the player new recordings snapshot (default 8, limited by view distance). |
+| `restore recording <rec>` / `restore scene <scene>` | Restore the world right now without playing anything. |
 | `scene mode <scene> real\|visual` | Make a scene's actors real fake players, or visual only. |
 | `scene mode <scene> <entry> real\|visual\|default` | Override one actor (`take1+3`), every copy of a take (`take1*`), or everyone (`*`). |
 | `scene play <scene> [loop] [speed] [gameclock]`, `scene stop <scene>` | Play/stop a whole scene. |
@@ -87,7 +99,9 @@ Scene actors are identified by entry ids: the first copy of `take1` is `take1`, 
 
 Everything is stored in the world folder under `playerplayback/`:
 * `recordings/*.pprec`: compact gzip'd binary takes
+* `recordings/*.ppworld`: the world snapshot taken when each take started
 * `scenes/*.json`: hand-editable scenes
+* `settings.json`: world restore on/off and snapshot radius
 * `appearances.json`: per-recording default name, skin and nametag
 
 ## Building
@@ -95,10 +109,10 @@ Everything is stored in the world folder under `playerplayback/`:
 The project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build every Minecraft version from one codebase. Gradle needs **JDK 25** (1.21.11 is compiled with JDK 21 through toolchains).
 
 ```bash
-./gradlew test buildAndCollect
+./gradlew test buildAndCollect universalJar
 ```
 
-Jars end up in `build/libs/<mod version>/`. GitHub Actions (`.github/workflows/build.yml`) builds and tests every version on each push. Pushing a `v*` tag publishes a release with the jars.
+Jars end up in `build/libs/<mod version>/`: one per Minecraft version, plus the universal jar. GitHub Actions (`.github/workflows/build.yml`) builds and tests every version on each push. Pushing a `v*` tag publishes a release with the jars.
 
 ## Same result every time
 
@@ -111,6 +125,9 @@ Replays are built to come out the same every time:
 What can't be made identical is the rest of the world's randomness: mob AI, natural mob spawning, endermites from pearls, damage spread from armor enchantments, and so on. Minecraft shares one random generator across everything in a world, so as soon as anything differs (a viewer walking around, a chunk loading in a different order), those sequences diverge. For fully repeatable shots, control the area: peaceful mode or `doMobSpawning false`, and no stray mobs.
 
 ## Notes and limitations
+
+* World restore resets *everything* in the snapshotted area to how it was when the take was recorded: blocks, containers and mobs. Anything built there afterwards is undone on the next playback. Turn it off with `/pb restore off` while building a set, or re-record once the set is finished. Players (and real actors) are never touched.
+* Takes recorded before world restore existed have no snapshot, so playing them doesn't restore anything.
 
 * An actor stays in the dimension where its take started. If the recorded player goes through a portal, the actor won't follow.
 * Visual-only actors can't be hit and their pearls are just for show (they still end up where the pearl landed, because they follow the recorded path).

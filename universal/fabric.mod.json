@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "playerplayback_universal",
+  "version": "${version}",
+  "name": "Player Playback (all versions)",
+  "description": "Universal Player Playback jar: contains the builds for every supported Minecraft version and loads the right one automatically.",
+  "authors": ["Player Playback contributors"],
+  "license": "MIT",
+  "icon": "assets/playerplayback/icon.png",
+  "environment": "*",
+  "jars": [${jars}],
+  "depends": {
+    "fabricloader": ">=0.20",
+    "minecraft": ">=1.21.11 <26.4",
+    "fabric-api": "*"
+  }
+}

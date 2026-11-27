@@ -76,6 +76,8 @@ public final class ServerNetworking {
             case "scene_add" -> service.addToScene(a.arg(0), a.arg(1), (int) Math.round(parse(a.arg(2), 0) * 1000));
             case "scene_remove" -> service.removeFromScene(a.arg(0), a.arg(1));
             case "scene_clear" -> service.clearScene(a.arg(0));
+            case "restore_toggle" -> service.setRestoreWorld(!service.settings.restoreWorld);
+            case "restore_scene" -> service.restoreScene(a.arg(0));
             case "scene_delay" -> service.setSceneDelay(a.arg(0), a.arg(1), (int) Math.round(parse(a.arg(2), 0) * 1000));
             case "crowd_add" -> {
                 com.playerplayback.scene.Formation f;
@@ -137,6 +139,7 @@ public final class ServerNetworking {
 
     private GuiState buildState() {
         GuiState s = new GuiState();
+        s.restoreWorld = service.settings.restoreWorld;
         for (String name : service.recordingNames()) {
             GuiState.Rec r = new GuiState.Rec();
             r.name = name;
