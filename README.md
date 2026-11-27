@@ -32,7 +32,11 @@ Record a few players ("takes"), then play many takes back at once as **fake play
   * Layered takes (`record start … scene …`) restore the world before you start acting.
 * **`/tick rate` safe.** Everything is timed with the real-time clock, not by counting ticks. A take recorded at `/tick rate 5` still plays back at the speed the player really moved. Playback also runs on its own 20 Hz thread, so actors keep moving under `/tick freeze`. Add `gameclock` to a play command if you *want* actors to slow down and speed up with the tick rate.
 
-Supported Minecraft versions: **1.21.11, 26.1 / 26.1.1 / 26.1.2, 26.2, 26.3**. Each has its own jar, and each needs Fabric API.
+Supported Minecraft versions: **1.21.11, 26.1 / 26.1.1 / 26.1.2, 26.2, 26.3**. Each needs Fabric API.
+
+Download either:
+* **`playerplayback-<version>-universal.jar`**: one file for every supported Minecraft version. It contains all the version-specific builds, and Fabric Loader picks the matching one automatically.
+* **`playerplayback-<version>+<minecraft>.jar`**: just the build for one Minecraft version (smaller).
 
 ## Quick start: a 100-player charge from 3 takes
 
@@ -105,10 +109,10 @@ Everything is stored in the world folder under `playerplayback/`:
 The project uses [Stonecutter](https://stonecutter.kikugie.dev/) to build every Minecraft version from one codebase. Gradle needs **JDK 25** (1.21.11 is compiled with JDK 21 through toolchains).
 
 ```bash
-./gradlew test buildAndCollect
+./gradlew test buildAndCollect universalJar
 ```
 
-Jars end up in `build/libs/<mod version>/`. GitHub Actions (`.github/workflows/build.yml`) builds and tests every version on each push. Pushing a `v*` tag publishes a release with the jars.
+Jars end up in `build/libs/<mod version>/`: one per Minecraft version, plus the universal jar. GitHub Actions (`.github/workflows/build.yml`) builds and tests every version on each push. Pushing a `v*` tag publishes a release with the jars.
 
 ## Same result every time
 
