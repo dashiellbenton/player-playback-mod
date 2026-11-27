@@ -19,6 +19,7 @@ public final class GuiState {
 
     public static final class SceneInfo {
         public String name;
+        public boolean real;
         public List<Entry> entries = new ArrayList<>();
     }
 
@@ -26,6 +27,7 @@ public final class GuiState {
         public String id;
         public String recording;
         public double speed;
+        public Boolean real;
         public double delaySeconds;
         public String actorName;
         public String skin;

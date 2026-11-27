@@ -17,7 +17,7 @@ public final class Playback {
 
     public final int id;
     public final String label;
-    public final List<Actor> actors = new ArrayList<>();
+    public final List<PlaybackActor> actors = new ArrayList<>();
     public final boolean loop;
     public final double speed;
     public final boolean gameClock;
@@ -43,8 +43,14 @@ public final class Playback {
 
     public int lengthMs() {
         int len = 0;
-        for (Actor a : actors) len = Math.max(len, a.endMs());
+        for (PlaybackActor a : actors) len = Math.max(len, a.endMs());
         return len;
+    }
+
+    /** Playbacks with real fake players run on the server thread. */
+    public boolean real() {
+        for (PlaybackActor a : actors) if (a.real()) return true;
+        return false;
     }
 
     public int elapsedMs() {
@@ -64,15 +70,15 @@ public final class Playback {
             if (loop && length > 0) {
                 elapsedMs %= length;
                 onLoop.run();
-                for (Actor a : actors) a.restart();
+                for (PlaybackActor a : actors) a.restart();
             } else {
                 // Show the very last frame once, then finish.
-                for (Actor a : actors) a.update(length, candidates, range, replayBlocks ? sink : null);
+                for (PlaybackActor a : actors) a.update(length, candidates, range, replayBlocks ? sink : null);
                 finished = true;
                 return;
             }
         }
         int t = (int) elapsedMs;
-        for (Actor a : actors) a.update(t, candidates, range, replayBlocks ? sink : null);
+        for (PlaybackActor a : actors) a.update(t, candidates, range, replayBlocks ? sink : null);
     }
 }

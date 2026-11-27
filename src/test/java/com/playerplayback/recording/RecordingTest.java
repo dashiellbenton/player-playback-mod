@@ -43,6 +43,7 @@ class RecordingTest {
         r.events.add(new ActorEvent.ProjectileStart(90, 0, "minecraft:ender_pearl", 1.5, 65.6, -3.2, 0.1, 0.5, 1.2, 90f, -20f, item));
         r.events.add(new ActorEvent.ProjectileMove(140, 0, 1.6, 66.1, -2.0, 91f, -18f));
         r.events.add(new ActorEvent.ProjectileEnd(900, 0));
+        r.events.add(new ActorEvent.Attack(950, 3.5, 64, -1.25, 0.92f, true));
         return r;
     }
 

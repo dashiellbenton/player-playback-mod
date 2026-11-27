@@ -8,6 +8,8 @@ import java.util.List;
 /** A named group of recordings that play back together. The same recording may appear many times (crowds). */
 public final class Scene {
     public String name;
+    /** Real mode: actors are real fake players (hittable, real projectiles). Otherwise visual-only. */
+    public boolean real;
     public List<Entry> entries = new ArrayList<>();
 
     public static final class Entry {
@@ -19,6 +21,8 @@ public final class Scene {
         /** Playback speed of this actor relative to the scene (crowd variation). */
         public double speed = 1.0;
         public double offsetX, offsetY, offsetZ;
+        /** Per-actor mode override (null = use the scene's mode). Lets a real front line have a visual background crowd. */
+        public Boolean real;
         /** Scene-specific overrides on top of the recording's own appearance. */
         public Appearance appearance = new Appearance();
 

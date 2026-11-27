@@ -20,7 +20,7 @@ public final class Recording {
     private static final int FORMAT = 2;
 
     private static final byte EV_SWING = 1, EV_ANIM = 2, EV_HURT = 3, EV_ENTITY = 4, EV_EQUIP = 5, EV_BLOCK = 6,
-            EV_SOUND = 7, EV_PROJ_START = 8, EV_PROJ_MOVE = 9, EV_PROJ_END = 10;
+            EV_SOUND = 7, EV_PROJ_START = 8, EV_PROJ_MOVE = 9, EV_PROJ_END = 10, EV_ATTACK = 11;
 
     public String originalName;
     public UUID originalUuid;
@@ -157,6 +157,14 @@ public final class Recording {
                     out.writeByte(EV_PROJ_END);
                     out.writeInt(pe.id());
                 }
+                case ActorEvent.Attack at -> {
+                    out.writeByte(EV_ATTACK);
+                    out.writeDouble(at.x());
+                    out.writeDouble(at.y());
+                    out.writeDouble(at.z());
+                    out.writeFloat(at.strength());
+                    out.writeBoolean(at.crit());
+                }
             }
         }
     }
@@ -235,6 +243,8 @@ public final class Recording {
                 case EV_PROJ_MOVE -> r.events.add(new ActorEvent.ProjectileMove(t, in.readInt(), in.readDouble(), in.readDouble(),
                         in.readDouble(), in.readFloat(), in.readFloat()));
                 case EV_PROJ_END -> r.events.add(new ActorEvent.ProjectileEnd(t, in.readInt()));
+                case EV_ATTACK -> r.events.add(new ActorEvent.Attack(t, in.readDouble(), in.readDouble(), in.readDouble(),
+                        in.readFloat(), in.readBoolean()));
                 default -> throw new IOException("Unknown event type " + type);
             }
         }

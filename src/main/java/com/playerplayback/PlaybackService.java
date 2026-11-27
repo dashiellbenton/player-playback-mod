@@ -257,6 +257,17 @@ public final class PlaybackService {
     }
 
     public Result play(String name, boolean loop, double speed, boolean gameClock, Vec3 offset) {
+        return play(name, loop, speed, gameClock, offset, false);
+    }
+
+    private com.playerplayback.playback.PlaybackActor makeActor(boolean real, String recording, String entryId, Recording rec,
+                                                               Appearance app, int delayMs, double speed, Vec3 offset) {
+        return real
+                ? new com.playerplayback.playback.RealActor(recording, entryId, rec, app, delayMs, speed, offset, server)
+                : new Actor(recording, entryId, rec, app, delayMs, speed, offset, server.registryAccess());
+    }
+
+    public Result play(String name, boolean loop, double speed, boolean gameClock, Vec3 offset, boolean real) {
         if (!recordingNames.contains(name)) return Result.fail("Unknown recording '" + name + "'");
         Recording rec;
         try {
@@ -266,9 +277,9 @@ public final class PlaybackService {
         }
         boolean blocks = rec.events.stream().anyMatch(e -> e instanceof com.playerplayback.recording.ActorEvent.Block);
         Playback p = playback.create(name, null, loop, clampSpeed(speed), gameClock, blocks);
-        p.actors.add(new Actor(name, null, rec, recordingAppearance(name), 0, 1.0, offset == null ? Vec3.ZERO : offset, server.registryAccess()));
+        p.actors.add(makeActor(real, name, null, rec, recordingAppearance(name), 0, 1.0, offset == null ? Vec3.ZERO : offset));
         playback.start(p);
-        return Result.ok("Playing '" + name + "' (#" + p.id + ")");
+        return Result.ok("Playing '" + name + "'" + (real ? " as a real player" : "") + " (#" + p.id + ")");
     }
 
     public Result playScene(String sceneName, boolean loop, double speed, boolean gameClock) {
@@ -291,7 +302,8 @@ public final class PlaybackService {
             try {
                 Recording rec = load(e.recording);
                 Appearance app = e.appearance.over(recordingAppearance(e.recording));
-                p.actors.add(new Actor(e.recording, e.id, rec, app, e.delayMs, e.speed, new Vec3(e.offsetX, e.offsetY, e.offsetZ), server.registryAccess()));
+                boolean real = e.real != null ? e.real : scene.real;
+                p.actors.add(makeActor(real, e.recording, e.id, rec, app, e.delayMs, e.speed, new Vec3(e.offsetX, e.offsetY, e.offsetZ)));
             } catch (IOException ex) {
                 missing.add(e.recording);
             }
@@ -299,7 +311,9 @@ public final class PlaybackService {
         if (p.actors.isEmpty()) return Result.fail("Nothing to play in scene '" + sceneName + "'");
         playback.start(p);
         if (forRecorder != null) forRecorder.scenePlaybackId = p.id;
-        String msg = "Playing scene '" + sceneName + "' with " + p.actors.size() + " actors (#" + p.id + ")";
+        long realCount = p.actors.stream().filter(com.playerplayback.playback.PlaybackActor::real).count();
+        String msg = "Playing scene '" + sceneName + "' with " + p.actors.size() + " actors"
+                + (realCount > 0 ? " (" + realCount + " real)" : "") + " (#" + p.id + ")";
         if (!missing.isEmpty()) msg += ". Missing: " + String.join(", ", missing);
         return Result.ok(msg);
     }
@@ -344,11 +358,11 @@ public final class PlaybackService {
     private void refreshRunning(String recording) {
         playback.refreshActors(recording, actor -> {
             Appearance base = recordingAppearance(recording);
-            if (actor.entryId != null) {
+            if (actor.entryId() != null) {
                 for (Playback p : playback.list()) {
                     if (p.sceneName != null && p.actors.contains(actor)) {
                         Scene sc = scenes.get(p.sceneName);
-                        Scene.Entry e = sc == null ? null : sc.find(actor.entryId);
+                        Scene.Entry e = sc == null ? null : sc.find(actor.entryId());
                         if (e != null) return e.appearance.over(base);
                     }
                 }
@@ -460,6 +474,37 @@ public final class PlaybackService {
         scenes.save(sc);
         changed();
         return Result.ok(entryId + " now starts at " + delayMs / 1000.0 + "s");
+    }
+
+    /** Sets real/visual mode for a whole scene, or for one entry ("default" clears an entry override). */
+    public Result setSceneMode(String scene, String entryId, String mode) {
+        Scene sc = scenes.get(scene);
+        if (sc == null) return Result.fail("Unknown scene '" + scene + "'");
+        if (entryId == null) {
+            if (!mode.equals("real") && !mode.equals("visual")) return Result.fail("Mode must be real or visual");
+            sc.real = mode.equals("real");
+            scenes.save(sc);
+            changed();
+            return Result.ok("Scene '" + scene + "' now uses " + (sc.real ? "real fake players" : "visual-only actors") + " (restart it to apply)");
+        }
+        Boolean value = switch (mode) {
+            case "real" -> Boolean.TRUE;
+            case "visual" -> Boolean.FALSE;
+            case "default" -> null;
+            default -> null;
+        };
+        if (!List.of("real", "visual", "default").contains(mode)) return Result.fail("Mode must be real, visual or default");
+        int n = 0;
+        for (Scene.Entry e : sc.entries) {
+            if (entryId.equals("*") || e.id.equals(entryId) || (entryId.endsWith("*") && e.recording.equals(entryId.substring(0, entryId.length() - 1)))) {
+                e.real = value;
+                n++;
+            }
+        }
+        if (n == 0) return Result.fail("No actor '" + entryId + "' in that scene");
+        scenes.save(sc);
+        changed();
+        return Result.ok("Set " + n + " actor(s) to " + mode + " (restart the scene to apply)");
     }
 
     public Result clearScene(String scene) {

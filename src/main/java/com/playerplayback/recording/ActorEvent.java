@@ -7,7 +7,7 @@ import net.minecraft.nbt.CompoundTag;
  */
 public sealed interface ActorEvent permits ActorEvent.Swing, ActorEvent.Animate, ActorEvent.Hurt,
         ActorEvent.EntityEvent, ActorEvent.Equip, ActorEvent.Block,
-        ActorEvent.Sound, ActorEvent.ProjectileStart, ActorEvent.ProjectileMove, ActorEvent.ProjectileEnd {
+        ActorEvent.Sound, ActorEvent.ProjectileStart, ActorEvent.ProjectileMove, ActorEvent.ProjectileEnd, ActorEvent.Attack {
 
     int timeMs();
 
@@ -45,4 +45,10 @@ public sealed interface ActorEvent permits ActorEvent.Swing, ActorEvent.Animate,
     record ProjectileMove(int timeMs, int id, double x, double y, double z, float yaw, float pitch) implements ActorEvent {}
 
     record ProjectileEnd(int timeMs, int id) implements ActorEvent {}
+
+    /**
+     * The player attacked something standing at (x, y, z). In real mode the actor attacks whatever
+     * is there on replay, with the same attack strength and critical-hit state.
+     */
+    record Attack(int timeMs, double x, double y, double z, float strength, boolean crit) implements ActorEvent {}
 }

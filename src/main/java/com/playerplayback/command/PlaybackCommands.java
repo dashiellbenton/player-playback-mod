@@ -67,7 +67,11 @@ public final class PlaybackCommands {
                                         .then(argument("speed", DoubleArgumentType.doubleArg(0.05, 10))
                                                 .executes(c -> play(c, BoolArgumentType.getBool(c, "loop"), DoubleArgumentType.getDouble(c, "speed"), false))
                                                 .then(literal("gameclock")
-                                                        .executes(c -> play(c, BoolArgumentType.getBool(c, "loop"), DoubleArgumentType.getDouble(c, "speed"), true)))))))
+                                                        .executes(c -> play(c, BoolArgumentType.getBool(c, "loop"), DoubleArgumentType.getDouble(c, "speed"), true)))
+                                                .then(literal("real")
+                                                        .executes(c -> reply(c, svc().play(rec(c), BoolArgumentType.getBool(c, "loop"),
+                                                                DoubleArgumentType.getDouble(c, "speed"), false, Vec3.ZERO, true))))))
+                                .then(literal("real").executes(c -> reply(c, svc().play(rec(c), false, 1.0, false, Vec3.ZERO, true))))))
                 .then(literal("stop")
                         .executes(c -> reply(c, svc().stopAll()))
                         .then(literal("all").executes(c -> reply(c, svc().stopAll())))
@@ -199,6 +203,13 @@ public final class PlaybackCommands {
                 .then(literal("remove").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
                         .then(argument("recording", StringArgumentType.greedyString()).suggests(SCENE_RECORDINGS)
                                 .executes(c -> reply(c, svc().removeFromScene(scene(c), rec(c)))))))
+                .then(literal("mode").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
+                        .then(literal("real").executes(c -> reply(c, svc().setSceneMode(scene(c), null, "real"))))
+                        .then(literal("visual").executes(c -> reply(c, svc().setSceneMode(scene(c), null, "visual"))))
+                        .then(argument("recording", StringArgumentType.string()).suggests(SCENE_RECORDINGS)
+                                .then(literal("real").executes(c -> reply(c, svc().setSceneMode(scene(c), rec(c), "real"))))
+                                .then(literal("visual").executes(c -> reply(c, svc().setSceneMode(scene(c), rec(c), "visual"))))
+                                .then(literal("default").executes(c -> reply(c, svc().setSceneMode(scene(c), rec(c), "default")))))))
                 .then(literal("clear").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
                         .executes(c -> reply(c, svc().clearScene(scene(c))))))
                 .then(literal("delay").then(argument("scene", StringArgumentType.word()).suggests(SCENES)
@@ -316,7 +327,7 @@ public final class PlaybackCommands {
         Scene s = svc().scenes.get(scene(c));
         if (s == null) return reply(c, Result.fail("Unknown scene"));
         CommandSourceStack src = c.getSource();
-        src.sendSuccess(() -> Component.literal("Scene " + s.name + ":").withStyle(ChatFormatting.GOLD), false);
+        src.sendSuccess(() -> Component.literal("Scene " + s.name + " (" + (s.real ? "real players" : "visual") + "):").withStyle(ChatFormatting.GOLD), false);
         int shown = 0;
         for (Scene.Entry e : s.entries) {
             if (++shown > 40) {
@@ -326,6 +337,7 @@ public final class PlaybackCommands {
             }
             StringBuilder sb = new StringBuilder(" - ").append(e.id).append(" @ ").append(e.delayMs / 1000.0).append("s");
             if (e.speed != 1.0) sb.append(String.format(Locale.ROOT, " x%.2f", e.speed));
+            if (e.real != null) sb.append(e.real ? " [real]" : " [visual]");
             if (e.offsetX != 0 || e.offsetY != 0 || e.offsetZ != 0) sb.append(String.format(Locale.ROOT, " offset %.1f %.1f %.1f", e.offsetX, e.offsetY, e.offsetZ));
             if (e.appearance.name != null) sb.append(" name=").append(e.appearance.name);
             if (e.appearance.skinSource != null) sb.append(" skin=").append(e.appearance.skinSource);

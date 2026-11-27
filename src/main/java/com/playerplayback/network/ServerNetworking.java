@@ -50,7 +50,9 @@ public final class ServerNetworking {
             case "record_start" -> service.startRecording(player, a.arg(0), a.arg(1).isEmpty() ? null : a.arg(1),
                     "true".equals(a.arg(2)), false);
             case "record_stop" -> service.stopRecording(player.getUUID(), player);
-            case "play" -> service.play(a.arg(0), "true".equals(a.arg(1)), parse(a.arg(2), 1.0), "true".equals(a.arg(3)), Vec3.ZERO);
+            case "play" -> service.play(a.arg(0), "true".equals(a.arg(1)), parse(a.arg(2), 1.0), "true".equals(a.arg(3)), Vec3.ZERO,
+                    "true".equals(a.arg(4)));
+            case "scene_mode" -> service.setSceneMode(a.arg(0), a.arg(1).isEmpty() ? null : a.arg(1), a.arg(2));
             case "play_scene" -> service.playScene(a.arg(0), "true".equals(a.arg(1)), parse(a.arg(2), 1.0), "true".equals(a.arg(3)));
             case "stop" -> service.stop((int) parse(a.arg(0), -1));
             case "stop_all" -> service.stopAll();
@@ -149,11 +151,13 @@ public final class ServerNetworking {
         for (Scene sc : service.scenes.all()) {
             GuiState.SceneInfo info = new GuiState.SceneInfo();
             info.name = sc.name;
+            info.real = sc.real;
             for (Scene.Entry e : sc.entries) {
                 GuiState.Entry ge = new GuiState.Entry();
                 ge.id = e.id;
                 ge.recording = e.recording;
                 ge.speed = e.speed;
+                ge.real = e.real;
                 ge.delaySeconds = e.delayMs / 1000.0;
                 ge.actorName = e.appearance.name;
                 ge.skin = e.appearance.skinSource;

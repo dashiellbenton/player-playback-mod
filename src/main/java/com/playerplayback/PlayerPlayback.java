@@ -83,6 +83,11 @@ public class PlayerPlayback implements ModInitializer {
             }
         });
 
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+            PlaybackService s = service;
+            if (s != null) s.playback.onPlayerJoin(handler.getPlayer());
+        });
+
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
             PlaybackService s = service;
             if (s == null) return;

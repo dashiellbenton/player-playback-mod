@@ -28,6 +28,7 @@ public class PlaybackScreen extends Screen {
     private static boolean recBlocks;
     private static String recScene;
     private static boolean loop;
+    private static boolean real;
     private static String selectedScene;
     private static String newSceneName = "";
     private static int addRecIndex;
@@ -126,7 +127,11 @@ public class PlaybackScreen extends Screen {
             }).bounds(left + contentWidth - 96, y, 96, 20).build());
         }
         y += ROW;
-        label(left, y, contentWidth - 80, Component.literal("\"With\" plays a scene while you record, then adds the take to it.").withStyle(ChatFormatting.GRAY));
+        label(left, y, contentWidth - 160, Component.literal("\"With\" plays a scene while you record.").withStyle(ChatFormatting.GRAY));
+        addRenderableWidget(Button.builder(Component.literal(real ? "Real players" : "Visual only"), b -> {
+            real = !real;
+            rebuildWidgets();
+        }).bounds(left + contentWidth - 156, y, 82, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Loop: " + (loop ? "On" : "Off")), b -> {
             loop = !loop;
             rebuildWidgets();
@@ -148,7 +153,7 @@ public class PlaybackScreen extends Screen {
             if (r.skin != null) text.append("  [skin: ").append(r.skin).append("]");
             if (Boolean.TRUE.equals(r.hideNametag)) text.append("  [no tag]");
             label(left, y, contentWidth - 160, Component.literal(text.toString()));
-            addRenderableWidget(Button.builder(Component.literal("▶ Play"), b -> ClientState.send("play", r.name, String.valueOf(loop), "1"))
+            addRenderableWidget(Button.builder(Component.literal("▶ Play"), b -> ClientState.send("play", r.name, String.valueOf(loop), "1", "false", String.valueOf(real)))
                     .bounds(left + contentWidth - 155, y, 50, 20).build());
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> ClientCompat.setScreen(minecraft, new ActorEditScreen(this, r.name, null)))
                     .bounds(left + contentWidth - 102, y, 48, 20).build());
@@ -238,7 +243,7 @@ public class PlaybackScreen extends Screen {
         int w = contentWidth - listW - 8;
         GuiState.SceneInfo scene = selected;
         boolean playing = s.playing.stream().anyMatch(p -> scene.name.equals(p.scene));
-        int bw = (w - 12) / 4;
+        int bw = (w - 16) / 5;
         addRenderableWidget(Button.builder(Component.literal("▶ Play").withStyle(ChatFormatting.GREEN),
                 b -> ClientState.send("play_scene", scene.name, String.valueOf(loop), "1")).bounds(x, y, bw, 20).build());
         addRenderableWidget(Button.builder(Component.literal("Loop: " + (loop ? "On" : "Off")), b -> {
@@ -259,6 +264,8 @@ public class PlaybackScreen extends Screen {
             }
             rebuildWidgets();
         }).bounds(x + 3 * (bw + 4), y, bw, 20).build());
+        addRenderableWidget(Button.builder(Component.literal(scene.real ? "Real" : "Visual"),
+                b -> ClientState.send("scene_mode", scene.name, "", scene.real ? "visual" : "real")).bounds(x + 4 * (bw + 4), y, bw, 20).build());
         y += ROW;
 
         // Add row
@@ -348,7 +355,11 @@ public class PlaybackScreen extends Screen {
             StringBuilder text = new StringBuilder(e.id).append(String.format(Locale.ROOT, " @%.1fs", e.delaySeconds));
             if (e.actorName != null) text.append(" as ").append(e.actorName);
             if (Boolean.TRUE.equals(e.hideNametag)) text.append(" [no tag]");
-            label(x, y, w - 100, Component.literal(text.toString()));
+            label(x, y, w - 124, Component.literal(text.toString()));
+            boolean entryReal = e.real != null ? e.real : scene.real;
+            addRenderableWidget(Button.builder(Component.literal(entryReal ? "R" : "V").withStyle(e.real == null ? ChatFormatting.GRAY : ChatFormatting.WHITE),
+                    b -> ClientState.send("scene_mode", scene.name, e.id, e.real == null ? (scene.real ? "visual" : "real") : "default"))
+                    .bounds(x + w - 120, y, 20, 20).build());
             addRenderableWidget(Button.builder(Component.literal("Edit"), b -> ClientCompat.setScreen(minecraft, new ActorEditScreen(this, e.id, scene.name)))
                     .bounds(x + w - 96, y, 46, 20).build());
             addRenderableWidget(Button.builder(Component.literal("Remove").withStyle(ChatFormatting.RED), b -> ClientState.send("scene_remove", scene.name, e.id))

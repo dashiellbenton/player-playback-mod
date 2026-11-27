@@ -103,6 +103,25 @@ public final class Compat {
         *///?}
     }
 
+    /** Makes a real entity swing its arm (broadcast to everyone tracking it). */
+    public static void swingEntity(net.minecraft.world.entity.LivingEntity entity, boolean offHand) {
+        InteractionHand hand = offHand ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+        //? if >=26.3 {
+        entity.swing(hand, SwingAnimation.DEFAULT, true);
+        //?} else {
+        /*entity.swing(hand, true);
+        *///?}
+    }
+
+    /** Detaches a fake player's advancement tracker from the game's criteria triggers. */
+    public static void stopAdvancements(net.minecraft.server.PlayerAdvancements advancements) {
+        //? if >=26.2 {
+        advancements.clearTriggers();
+        //?} else {
+        /*advancements.stopListening();
+        *///?}
+    }
+
     public static Packet<?> animatePacket(int entityId, int kind) {
         int action = switch (kind) {
             case ActorEvent.ANIM_CRIT -> ClientboundAnimatePacket.CRITICAL_HIT;

@@ -15,7 +15,6 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
@@ -30,7 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * <p>
  * Accessed only while holding {@link PlaybackManager#LOCK}.
  */
-public final class Actor {
+public final class Actor implements PlaybackActor {
     /** Ids far away from the vanilla entity id counter to avoid collisions. */
     private static final AtomicInteger NEXT_ID = new AtomicInteger(1_600_000_000);
 
@@ -52,7 +51,7 @@ public final class Actor {
     private final Map<ServerPlayer, ServerLevel> viewers = new IdentityHashMap<>();
     private final Map<EquipmentSlot, ItemStack> equipment = new EnumMap<>(EquipmentSlot.class);
 
-    private int frameIndex;
+    private final FrameCursor cursor;
     private int eventIndex;
     private int lastTimeMs = Integer.MIN_VALUE;
     private Frame current;
@@ -83,6 +82,7 @@ public final class Actor {
         this.offset = offset;
         this.dimension = recording.dimension;
         this.registries = registries;
+        this.cursor = new FrameCursor(recording);
         setAppearance(appearance);
         resetEquipment();
     }
@@ -96,6 +96,7 @@ public final class Actor {
     }
 
     /** Changes name/skin/nametag. Viewers get the actor respawned with the new look. */
+    @Override
     public void setAppearance(Appearance a) {
         boolean respawn = profile != null;
         if (respawn) despawnAll();
@@ -123,8 +124,9 @@ public final class Actor {
     }
 
     /** Called when a looping playback restarts. */
+    @Override
     public void restart() {
-        frameIndex = 0;
+        cursor.reset();
         eventIndex = 0;
         lastTimeMs = Integer.MIN_VALUE;
         resetEquipment();
@@ -143,6 +145,7 @@ public final class Actor {
      * @param candidates players that could see the actor (server snapshot)
      * @param range      tracking range in blocks
      */
+    @Override
     public void update(int sceneTimeMs, List<ServerPlayer> candidates, double range, Playback.BlockSink blocks) {
         int t = (int) ((sceneTimeMs - delayMs) * speed);
         if (t < 0 || recording.frames.isEmpty()) {
@@ -150,16 +153,16 @@ public final class Actor {
             return;
         }
         if (t < lastTimeMs) {
-            frameIndex = 0;
+            cursor.reset();
             eventIndex = 0;
         }
 
-        Frame f = sample(Math.min(t, recording.durationMs));
+        Frame f = cursor.sample(Math.min(t, recording.durationMs));
         Frame previous = current;
         current = f;
 
         // Dead actors stand back up once the recorded player respawned (big position jump).
-        if (dead && previous != null && distSq(previous, f) > 16 * 16) {
+        if (dead && previous != null && FrameCursor.distSq(previous, f) > 16 * 16) {
             dead = false;
             despawnAll();
         }
@@ -229,6 +232,7 @@ public final class Actor {
                 Proj p = projectiles.remove(pe.id());
                 if (p != null) broadcast(PacketFactory.removeEntity(p.entityId));
             }
+            case ActorEvent.Attack at -> { /* visual actors can't hit anything */ }
         }
     }
 
@@ -296,6 +300,7 @@ public final class Actor {
     }
 
     /** Removes the actor and its projectiles from every viewer. */
+    @Override
     public void despawnAll() {
         for (ServerPlayer p : viewers.keySet()) sendDespawn(p, true);
         viewers.clear();
@@ -325,29 +330,6 @@ public final class Actor {
         }
     }
 
-    /** Interpolated state at recording time {@code t}. */
-    private Frame sample(int t) {
-        List<Frame> frames = recording.frames;
-        while (frameIndex + 1 < frames.size() && frames.get(frameIndex + 1).timeMs() <= t) frameIndex++;
-        Frame a = frames.get(frameIndex);
-        if (frameIndex + 1 >= frames.size() || t <= a.timeMs()) return a;
-        Frame b = frames.get(frameIndex + 1);
-        int span = b.timeMs() - a.timeMs();
-        if (span <= 0) return a;
-        // Don't smear teleports.
-        if (distSq(a, b) > 8 * 8) return a;
-        float k = (t - a.timeMs()) / (float) span;
-        return new Frame(t,
-                Mth.lerp(k, a.x(), b.x()), Mth.lerp(k, a.y(), b.y()), Mth.lerp(k, a.z(), b.z()),
-                Mth.rotLerp(k, a.yaw(), b.yaw()), Mth.lerp(k, a.pitch(), b.pitch()), Mth.rotLerp(k, a.headYaw(), b.headYaw()),
-                a.onGround(), a.sharedFlags(), a.livingFlags(), a.pose());
-    }
-
-    private static double distSq(Frame a, Frame b) {
-        double dx = a.x() - b.x(), dy = a.y() - b.y(), dz = a.z() - b.z();
-        return dx * dx + dy * dy + dz * dz;
-    }
-
     private void broadcast(Packet<?> packet) {
         for (ServerPlayer p : viewers.keySet()) send(p, packet);
     }
@@ -362,8 +344,24 @@ public final class Actor {
     }
 
     /** Length of this actor on the scene timeline. */
+    @Override
     public int endMs() {
         return delayMs + (int) Math.ceil(recording.durationMs / speed);
+    }
+
+    @Override
+    public String recordingName() {
+        return recordingName;
+    }
+
+    @Override
+    public String entryId() {
+        return entryId;
+    }
+
+    @Override
+    public boolean real() {
+        return false;
     }
 
     public Appearance appearance() {

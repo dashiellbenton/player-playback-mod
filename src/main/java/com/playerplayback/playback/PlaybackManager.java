@@ -62,6 +62,16 @@ public final class PlaybackManager {
         var rate = server.tickRateManager();
         rateFactor = rate.isFrozen() ? 0.0 : rate.tickrate() / 20.0;
         rangeBlocks = Math.max(2, Math.min(server.getPlayerList().getViewDistance(), 32)) * 16.0;
+        stepPlaybacks(true);
+    }
+
+    /** A real player joined: tell their client about the fake players that already exist. */
+    public void onPlayerJoin(ServerPlayer player) {
+        synchronized (LOCK) {
+            for (Playback p : playbacks.values()) {
+                for (PlaybackActor a : p.actors) if (a instanceof RealActor r) r.introduceTo(player);
+            }
+        }
     }
 
     public Playback create(String label, String sceneName, boolean loop, double speed, boolean gameClock, boolean replayBlocks) {
@@ -128,10 +138,10 @@ public final class PlaybackManager {
     }
 
     /** Re-applies appearance to running actors of a recording (e.g. after a skin change). */
-    public void refreshActors(String recording, java.util.function.Function<Actor, com.playerplayback.actor.Appearance> appearance) {
+    public void refreshActors(String recording, java.util.function.Function<PlaybackActor, com.playerplayback.actor.Appearance> appearance) {
         synchronized (LOCK) {
             for (Playback p : playbacks.values()) {
-                for (Actor a : p.actors) if (a.recordingName.equals(recording)) a.setAppearance(appearance.apply(a));
+                for (PlaybackActor a : p.actors) if (a.recordingName().equals(recording)) a.setAppearance(appearance.apply(a));
             }
         }
     }
@@ -151,7 +161,7 @@ public final class PlaybackManager {
     }
 
     private void end(Playback p) {
-        for (Actor a : p.actors) a.despawnAll();
+        for (PlaybackActor a : p.actors) a.despawnAll();
         revertBlocks(p);
     }
 
@@ -164,6 +174,15 @@ public final class PlaybackManager {
     }
 
     private void step() {
+        stepPlaybacks(false);
+    }
+
+    /**
+     * Steps playbacks. Visual-only playbacks run on the dedicated real-time thread; playbacks with
+     * real fake players must touch the world, so they run on the server thread (onServerThread).
+     * Both use the real-time clock for their timeline.
+     */
+    private void stepPlaybacks(boolean onServerThread) {
         boolean changed = false;
         synchronized (LOCK) {
             if (playbacks.isEmpty()) return;
@@ -174,6 +193,7 @@ public final class PlaybackManager {
             Iterator<Playback> it = playbacks.values().iterator();
             while (it.hasNext()) {
                 Playback p = it.next();
+                if (p.real() != onServerThread) continue;
                 p.step(now, rate, snapshot, range, (dim, x, y, z, state, broken) -> queueBlock(p, dim, x, y, z, state, broken),
                         () -> revertBlocks(p));
                 if (p.finished) {
